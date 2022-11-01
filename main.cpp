@@ -10,7 +10,7 @@ typedef double precision;
 
 int main(int argc, char *argv[]) {
   int rank, M, N, Nf;
-  double wtime, L, dx;
+  double L, dx;
   precision nu, dt, T;
   double t0, t1, fastest_time, slowest_time, start_time;
   MPI::Init(argc, argv);
@@ -18,8 +18,7 @@ int main(int argc, char *argv[]) {
 
   rank = MPI::COMM_WORLD.Get_rank();
   precision pi = 3.141592653589793238;
-  ptrdiff_t alloc_local, local_n0, local_0_start, local_n1, local_1_start, i, j,
-      k;
+  ptrdiff_t alloc_local, local_n0, local_0_start, local_n1, local_1_start;
   vector<double> s_in(1), s_out(1), vs_in(2), vs_out(2);
 
   nu = 0.000625;
@@ -174,7 +173,7 @@ int main(int argc, char *argv[]) {
             irfftn, reinterpret_cast<fftw_complex *>(V_hat.data()), V.data());
         fftw_mpi_execute_dft_c2r(
             irfftn, reinterpret_cast<fftw_complex *>(W_hat.data()), W.data());
-        for (int k = 0; k < U.size(); k++) {
+        for (int k = 0; k < (int)U.size(); k++) {
           U[k] /= tot;
           V[k] /= tot;
           W[k] /= tot;
@@ -197,7 +196,7 @@ int main(int argc, char *argv[]) {
           irfftn, reinterpret_cast<fftw_complex *>(curlY.data()), CV.data());
       fftw_mpi_execute_dft_c2r(
           irfftn, reinterpret_cast<fftw_complex *>(curlZ.data()), CW.data());
-      for (int k = 0; k < CU.size(); k++) {
+      for (int k = 0; k < (int)CU.size(); k++) {
         CU[k] /= tot;
         CV[k] /= tot;
         CW[k] /= tot;
