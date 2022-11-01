@@ -20,14 +20,12 @@ int main(int argc, char *argv[]) {
   int rk;
   int tstep;
   int z;
-  vector<double> s_in(1);
-  vector<double> s_out(1);
-  vector<double> vs_in(2);
-  vector<double> vs_out(2);
-  vector<precision> a(4);
-  vector<precision> b(3);
-  vector<precision> kx(N);
-  vector<precision> kz(Nf);
+  precision s_in[1];
+  precision s_out[1];
+  precision a[4];
+  precision b[3];
+  precision kx[N];
+  precision kz[Nf];
 
   MPI::Init(argc, argv);
   fftw_mpi_init();
@@ -261,7 +259,7 @@ int main(int argc, char *argv[]) {
           }
       s_in[0] *= (0.5 * dx * dx * dx / L / L / L);
 
-      MPI::COMM_WORLD.Reduce(s_in.data(), s_out.data(), 1, MPI::DOUBLE,
+      MPI::COMM_WORLD.Reduce(s_in, s_out, 1, MPI::DOUBLE,
                              MPI::SUM, 0);
       if (rank == 0)
 	fprintf(stderr, "k = %.16e\n", s_out[0]);
