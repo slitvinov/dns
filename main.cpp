@@ -8,6 +8,8 @@ typedef double precision;
 
 enum { M = 7, N = 1 << M, Nf = N / 2 + 1, tot = N * N * N};
 int main(int argc, char *argv[]) {
+  precision a[] = {1/6.0, 1/3.0, 1/3.0, 1/6.0};
+  precision b[] = {0.5, 0.5, 1.0};
   int rank;
   double L, dx;
   precision nu, dt, T;
@@ -22,8 +24,6 @@ int main(int argc, char *argv[]) {
   int z;
   precision s_in[1];
   precision s_out[1];
-  precision a[4];
-  precision b[3];
   precision kx[N];
   precision kz[Nf];
 
@@ -35,13 +35,6 @@ int main(int argc, char *argv[]) {
   dt = 0.01;
   L = 2 * pi;
   dx = L / N;
-  a[0] = 1. / 6.;
-  a[1] = 1. / 3.;
-  a[2] = 1. / 3.;
-  a[3] = 1. / 6.;
-  b[0] = 0.5;
-  b[1] = 0.5;
-  b[2] = 1.0;
   alloc_local = fftw_mpi_local_size_3d_transposed(N, N, Nf, MPI::COMM_WORLD,
                                                   &local_n0, &local_0_start,
                                                   &local_n1, &local_1_start);
