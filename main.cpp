@@ -6,23 +6,28 @@
 using namespace std;
 typedef double precision;
 
+enum { M = 7, N = 1 << M, Nf = N / 2 + 1, tot = N * N * N};
 int main(int argc, char *argv[]) {
-  int rank, M, N, Nf;
+  int rank;
   double L, dx;
   precision nu, dt, T;
   precision pi = 3.141592653589793238;
   ptrdiff_t alloc_local, local_n0, local_0_start, local_n1, local_1_start;
-  vector<double> s_in(1), s_out(1), vs_in(2), vs_out(2);
-  vector<precision> a(4);
-  vector<precision> b(3);
   int i;
   int j;
   int k;
   int m;
   int rk;
-  int tot;
   int tstep;
   int z;
+  vector<double> s_in(1);
+  vector<double> s_out(1);
+  vector<double> vs_in(2);
+  vector<double> vs_out(2);
+  vector<precision> a(4);
+  vector<precision> b(3);
+  vector<precision> kx(N);
+  vector<precision> kz(Nf);
 
   MPI::Init(argc, argv);
   fftw_mpi_init();
@@ -30,10 +35,6 @@ int main(int argc, char *argv[]) {
   nu = 0.000625;
   T = 0.1;
   dt = 0.01;
-  M = 7;
-  N = 1;
-  for (i = 0; i < M; i++)
-    N *= 2;
   L = 2 * pi;
   dx = L / N;
   a[0] = 1. / 6.;
@@ -43,8 +44,6 @@ int main(int argc, char *argv[]) {
   b[0] = 0.5;
   b[1] = 0.5;
   b[2] = 1.0;
-  tot = N * N * N;
-  Nf = N / 2 + 1;
   alloc_local = fftw_mpi_local_size_3d_transposed(N, N, Nf, MPI::COMM_WORLD,
                                                   &local_n0, &local_0_start,
                                                   &local_n1, &local_1_start);
@@ -80,8 +79,6 @@ int main(int argc, char *argv[]) {
   // Starting time
   MPI::COMM_WORLD.Barrier();
 
-  vector<precision> kx(N);
-  vector<precision> kz(Nf);
   for (i = 0; i < N / 2; i++) {
     kx[i] = i;
     kz[i] = i;
