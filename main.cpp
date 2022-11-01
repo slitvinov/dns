@@ -1,7 +1,5 @@
 #include "fftw3-mpi.h"
 #include <complex>
-#include <iomanip>
-#include <iostream>
 #include <math.h>
 #include <vector>
 
@@ -12,7 +10,6 @@ int main(int argc, char *argv[]) {
   int rank, M, N, Nf;
   double L, dx;
   precision nu, dt, T;
-  double t0, t1, fastest_time, slowest_time, start_time;
   MPI::Init(argc, argv);
   fftw_mpi_init();
 
@@ -35,9 +32,6 @@ int main(int argc, char *argv[]) {
     N *= 2;
   L = 2 * pi;
   dx = L / N;
-  std::cout << std::scientific << std::setprecision(16);
-  if (rank == 0)
-    std::cout << "N = " << N << std::endl;
   vector<precision> a(4);
   a[0] = 1. / 6.;
   a[1] = 1. / 3.;
@@ -83,8 +77,6 @@ int main(int argc, char *argv[]) {
 
   // Starting time
   MPI::COMM_WORLD.Barrier();
-  t0 = MPI::Wtime();
-  start_time = t0;
 
   vector<precision> kx(N);
   vector<precision> kz(Nf);
@@ -142,8 +134,6 @@ int main(int argc, char *argv[]) {
   complex<precision> one(0, 1);
   double t = 0.0;
   int tstep = 0;
-  fastest_time = 1e8;
-  slowest_time = 0;
   while (t < T - 1e-8) {
     t += dt;
     tstep++;
@@ -158,13 +148,6 @@ int main(int argc, char *argv[]) {
           V_hat1[z] = V_hat[z];
           W_hat1[z] = W_hat[z];
         }
-    //      std::copy(U_hat.begin(), U_hat.end(), U_hat0.begin());
-    //      std::copy(V_hat.begin(), V_hat.end(), V_hat0.begin());
-    //      std::copy(W_hat.begin(), W_hat.end(), W_hat0.begin());
-    //      std::copy(U_hat.begin(), U_hat.end(), U_hat1.begin());
-    //      std::copy(U_hat.begin(), U_hat.end(), U_hat1.begin());
-    //      std::copy(U_hat.begin(), U_hat.end(), U_hat1.begin());
-
     for (int rk = 0; rk < 4; rk++) {
       if (rk > 0) {
         fftw_mpi_execute_dft_c2r(
@@ -282,48 +265,8 @@ int main(int argc, char *argv[]) {
       MPI::COMM_WORLD.Reduce(s_in.data(), s_out.data(), 1, MPI::DOUBLE,
                              MPI::SUM, 0);
       if (rank == 0)
-        std::cout << " k = " << s_out[0] << std::endl;
+	fprintf(stderr, "k = %.16e\n", s_out[0]);
     }
-
-    t1 = MPI::Wtime();
-    if (tstep > 1) {
-      fastest_time = min(t1 - t0, fastest_time);
-      slowest_time = max(t1 - t0, slowest_time);
-    }
-    t0 = t1;
   }
-
-  s_in[0] = 0.0;
-  for (int i = 0; i < local_n0; i++)
-    for (int j = 0; j < N; j++)
-      for (int k = 0; k < N; k++) {
-        int z = (i * N + j) * 2 * Nf + k;
-        s_in[0] += (U[z] * U[z] + V[z] * V[z] + W[z] * W[z]);
-      }
-  s_in[0] *= (0.5 * dx * dx * dx / L / L / L);
-
-  MPI::COMM_WORLD.Reduce(s_in.data(), s_out.data(), 1, MPI::DOUBLE, MPI::SUM,
-                         0);
-  if (rank == 0)
-    std::cout << " k = " << s_out[0] << std::endl;
-
-  MPI::COMM_WORLD.Barrier();
-  t1 = MPI::Wtime();
-  if (rank == 0)
-    std::cout << "Time = " << t1 - start_time << std::endl;
-
-  fftw_destroy_plan(rfftn);
-  fftw_destroy_plan(irfftn);
-  vs_in[0] = fastest_time;
-  vs_in[1] = slowest_time;
-  MPI::COMM_WORLD.Reduce(vs_in.data(), vs_out.data(), 2, MPI::DOUBLE, MPI::MIN,
-                         0);
-  if (rank == 0)
-    std::cout << "Fastest = " << vs_out[0] << ", " << vs_out[1] << std::endl;
-  MPI::COMM_WORLD.Reduce(vs_in.data(), vs_out.data(), 2, MPI::DOUBLE, MPI::MAX,
-                         0);
-  if (rank == 0)
-    std::cout << "Slowest = " << vs_out[0] << ", " << vs_out[1] << std::endl;
-
   MPI::Finalize();
 }
