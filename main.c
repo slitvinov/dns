@@ -38,8 +38,8 @@ int main(int argc, char *argv[]) {
   fftw_complex *W_hat0;
   fftw_complex *W_hat1;
   double L, dx;
-  double s_in[1];
-  double s_out[1];
+  double s_in;
+  double s_out;
   fftw_plan rfftn;
   fftw_plan irfftn;
   int *dealias;
@@ -185,7 +185,6 @@ int main(int argc, char *argv[]) {
           W[k] /= tot;
         }
       }
-      // Compute curl
       for (i = 0; i < n1; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
@@ -202,8 +201,6 @@ int main(int argc, char *argv[]) {
         CV[k] /= tot;
         CW[k] /= tot;
       }
-
-      // Cross
       for (i = 0; i < n0; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < N; k++) {
@@ -266,18 +263,18 @@ int main(int argc, char *argv[]) {
         }
 
     if (tstep % 2 == 0) {
-      s_in[0] = 0.0;
+      s_in = 0.0;
       for (i = 0; i < n0; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < N; k++) {
             z = (i * N + j) * 2 * Nf + k;
-            s_in[0] += U[z] * U[z] + V[z] * V[z] + W[z] * W[z];
+            s_in += U[z] * U[z] + V[z] * V[z] + W[z] * W[z];
           }
-      s_in[0] *= 0.5 * dx * dx * dx / L / L / L;
+      s_in *= 0.5 * dx * dx * dx / L / L / L;
       MPI_CALL(
-          MPI_Reduce(s_in, s_out, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD));
+          MPI_Reduce(&s_in, &s_out, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD));
       if (rank == 0)
-        fprintf(stderr, "k = %.16e\n", s_out[0]);
+        fprintf(stderr, "k = %.16e\n", s_out);
     }
   }
   free(U);
