@@ -160,7 +160,7 @@ int main(int argc, char *argv[]) {
       }
   t = 0.0;
   tstep = 0;
-  while (t < T - 1e-8) {
+  while (t <= T) {
     t += dt;
     tstep++;
     for (i = 0; i < n1; i++)
@@ -209,7 +209,6 @@ int main(int argc, char *argv[]) {
             V_tmp[z] = W[z] * CU[z] - U[z] * CW[z];
             W_tmp[z] = U[z] * CV[z] - V[z] * CU[z];
           }
-
       fftw_mpi_execute_dft_r2c(rfftn, U_tmp, dU);
       fftw_mpi_execute_dft_r2c(rfftn, V_tmp, dV);
       fftw_mpi_execute_dft_r2c(rfftn, W_tmp, dW);
@@ -222,7 +221,6 @@ int main(int argc, char *argv[]) {
             dV[z] *= dealias[z] * dt;
             dW[z] *= dealias[z] * dt;
           }
-      //
       for (i = 0; i < n1; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
