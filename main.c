@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <assert.h>
 
-typedef double precision;
 enum { M = 5, N = 1 << M, Nf = N / 2 + 1, tot = N * N * N };
 #define MALLOC(var, nelem)                                                     \
   if ((var = malloc(nelem * sizeof *var)) == NULL) {                           \
@@ -19,7 +18,12 @@ enum { M = 5, N = 1 << M, Nf = N / 2 + 1, tot = N * N * N };
     exit(1);                                                                   \
   }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char **argv) {
+  char err_buffer[MPI_MAX_ERROR_STRING];
+  double dx;
+  double L;
+  double s_in;
+  double s_out;
   fftw_complex *curlX;
   fftw_complex *curlY;
   fftw_complex *curlZ;
@@ -37,46 +41,42 @@ int main(int argc, char *argv[]) {
   fftw_complex *W_hat;
   fftw_complex *W_hat0;
   fftw_complex *W_hat1;
-  double L, dx;
-  double s_in;
-  double s_out;
-  fftw_plan rfftn;
   fftw_plan irfftn;
+  fftw_plan rfftn;
   int *dealias;
   int i;
+  int ierr;
   int j;
   int k;
   int m;
   int rank;
+  int resultlen;
   int rk;
   int tstep;
   int z;
-  precision a[] = {1 / 6.0, 1 / 3.0, 1 / 3.0, 1 / 6.0};
-  precision b[] = {0.5, 0.5, 1.0};
-  precision *CU;
-  precision *CV;
-  precision *CW;
-  precision *kk;
-  precision kmax;
-  precision kx[N];
-  precision kz[Nf];
-  precision nu, dt, T;
-  precision pi = 3.141592653589793238;
-  precision t;
-  precision *U;
-  precision *U_tmp;
-  precision *V;
-  precision *V_tmp;
-  precision *W;
-  precision *W_tmp;
+  double a[] = {1 / 6.0, 1 / 3.0, 1 / 3.0, 1 / 6.0};
+  double b[] = {0.5, 0.5, 1.0};
+  double *CU;
+  double *CV;
+  double *CW;
+  double *kk;
+  double kmax;
+  double kx[N];
+  double kz[Nf];
+  double nu, dt, T;
+  double pi = 3.141592653589793238;
+  double t;
+  double *U;
+  double *U_tmp;
+  double *V;
+  double *V_tmp;
+  double *W;
+  double *W_tmp;
   ptrdiff_t n;
   ptrdiff_t n0;
-  ptrdiff_t s0;
   ptrdiff_t n1;
+  ptrdiff_t s0;
   ptrdiff_t s1;
-  char err_buffer[MPI_MAX_ERROR_STRING];
-  int resultlen;
-  int ierr;
 
   nu = 0.000625;
   T = 0.1;
