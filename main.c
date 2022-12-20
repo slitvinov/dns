@@ -88,7 +88,7 @@ int main(int argc, char *argv[]) {
   MPI_CALL(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
   n = fftw_mpi_local_size_3d_transposed(N, N, Nf, MPI_COMM_WORLD, &n0, &s0, &n1,
                                         &s1);
-  assert(n = n1 * N * Nf);
+  assert(n == n1 * N * Nf);
   MALLOC(U, 2 * n);
   MALLOC(V, 2 * n);
   MALLOC(W, 2 * n);
