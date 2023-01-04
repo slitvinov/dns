@@ -68,8 +68,8 @@ int main(int argc, char **argv) {
            creal(compl [i]) - creal(refer[i]));
 
   fftw_execute(plan_c2r);
-  /*  for (i = 0; i < n0 * n1 * n2; i++)
-      printf("%g\n", real[i] / n0 / n1 / n2); */
+  for (i = 0; i < n0 * n1 * n2; i++)
+    printf("%g\n", real[i] / n0 / n1 / n2);
 
   fftw_free(real);
   fftw_free(compl );
