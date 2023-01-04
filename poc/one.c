@@ -3,7 +3,7 @@
 #include <math.h>
 #include <stdlib.h>
 
-enum { n = 10, m = 2 * (n / 2 + 1) };
+enum { n = 10, m = n / 2 + 1 };
 #define pi 3.141592653589793238
 
 int main(int argc, char **argv) {
@@ -58,6 +58,7 @@ int main(int argc, char **argv) {
 
   fftw_free(real);
   fftw_free(compl );
+  fftw_free(refer);
   fftw_destroy_plan(plan_c2r);
   fftw_destroy_plan(plan_r2c);
   fftw_cleanup();
