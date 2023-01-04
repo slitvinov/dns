@@ -1,5 +1,5 @@
 #include <complex.h>
-#include "fftw3.h"
+#include <fftw3.h>
 #include <math.h>
 #include <stdlib.h>
 
@@ -23,8 +23,6 @@ int main(int argc, char **argv) {
   compl = fftw_alloc_complex(m);
   refer = fftw_alloc_complex(m);
 
-  for (i = 0; i < n; i++)
-    real[i] = i;
   flags = FFTW_DESTROY_INPUT;
   if ((plan_r2c = fftw_plan_dft_r2c_1d(n, real, compl, flags)) == NULL) {
     fprintf(stderr, "%s:%d: fftw_plan_dft_r2c_1d failed\n", __FILE__, __LINE__);
@@ -34,10 +32,10 @@ int main(int argc, char **argv) {
     fprintf(stderr, "%s:%d: fftw_plan_dft_c2r_1d failed\n", __FILE__, __LINE__);
     exit(1);
   }
-
+  for (i = 0; i < n; i++)
+    real[i] = i;
   fftw_execute(plan_r2c);
-
-  for (i = 0; i < n / 2; i++) {
+  for (i = 0; i < m; i++) {
     im = 0;
     re = 0;
     for (j = 0; j < n; j++) {
@@ -48,7 +46,7 @@ int main(int argc, char **argv) {
     refer[i] = CMPLX(re, im);
   }
 
-  for (i = 0; i < n / 2; i++)
+  for (i = 0; i < m; i++)
     printf("%d %+.16e %+.16e\n", i, cimag(compl [i]) - cimag(refer[i]),
            creal(compl [i]) - creal(refer[i]));
 
