@@ -4,7 +4,7 @@
 #include <math.h>
 #include <stdlib.h>
 
-enum { M = 5, N = 1 << M, Nf = N / 2 + 1, tot = N * N * N };
+enum { N = 1 << 5, Nf = N / 2 + 1, tot = N * N * N };
 #define MALLOC(var, nelem)                                                     \
   if ((var = fftw_malloc(nelem * sizeof *var)) == NULL) {                      \
     fprintf(stderr, "%s:%d: fftwf_malloc failed\n", __FILE__, __LINE__);       \
