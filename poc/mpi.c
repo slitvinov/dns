@@ -35,14 +35,22 @@ int main(int argc, char **argv) {
   int j1;
   int j2;
   unsigned flags;
+  ptrdiff_t n;
+  ptrdiff_t local_n0;
+  ptrdiff_t local_0_start;
 
   MPI_CALL(MPI_Init(&argc, &argv));
   MPI_CALL(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
   fftw_mpi_init();
+  fprintf(stderr, "rank = %d\n", rank);
+  n = fftw_mpi_local_size_3d(n0, n1, n2, MPI_COMM_WORLD, &local_n0,
+                             &local_0_start);
+  fprintf(stderr,
+          "(%d) n, local_n0, local_0_start, local_n0*n1*n2: %ld %ld %ld %ld\n",
+          rank, n, local_n0, local_0_start, local_n0 * n1 * n2);
 
-  fprintf(stderr, "randk = %d\n", rank);
-  /*  n = fftw_mpi_local_size_3d_transposed(N, N, Nf, MPI_COMM_WORLD, &n0, &s0, &n1,
-      &s1); */
+  /*  n = fftw_mpi_local_size_3d_transposed(N, N, Nf, MPI_COMM_WORLD, &n0, &s0,
+     &n1, &s1); */
   fftw_mpi_cleanup();
   MPI_CALL(MPI_Finalize());
 }

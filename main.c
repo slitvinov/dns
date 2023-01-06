@@ -1,6 +1,6 @@
-#include <complex.h>
-#include "fftw3-mpi.h"
 #include <assert.h>
+#include <complex.h>
+#include <fftw3-mpi.h>
 #include <math.h>
 #include <stdlib.h>
 
