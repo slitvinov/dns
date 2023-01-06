@@ -3,7 +3,7 @@
 #include <math.h>
 #include <stdlib.h>
 
-enum { n0 = 3, n1 = 4, n2 = 5, m = n0 * n1 * (n2 / 2 + 1) };
+enum { n0 = 6, n1 = 4, n2 = 3, m = n0 * n1 * (n2 / 2 + 1) };
 #define pi 3.141592653589793238
 #define MPI_CALL(command)                                                      \
   if ((ierr = (command)) != MPI_SUCCESS) {                                     \
@@ -35,22 +35,40 @@ int main(int argc, char **argv) {
   int j1;
   int j2;
   unsigned flags;
-  ptrdiff_t n;
+  ptrdiff_t alloc_local;
   ptrdiff_t local_n0;
   ptrdiff_t local_0_start;
 
   MPI_CALL(MPI_Init(&argc, &argv));
   MPI_CALL(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
   fftw_mpi_init();
-  fprintf(stderr, "rank = %d\n", rank);
-  n = fftw_mpi_local_size_3d(n0, n1, n2, MPI_COMM_WORLD, &local_n0,
-                             &local_0_start);
+  /* fprintf(stderr, "rank = %d\n", rank); */
+  alloc_local = fftw_mpi_local_size_3d(n0, n1, n2 / 2 + 1, MPI_COMM_WORLD,
+                                       &local_n0, &local_0_start);
   fprintf(stderr,
-          "(%d) n, local_n0, local_0_start, local_n0*n1*n2: %ld %ld %ld %ld\n",
-          rank, n, local_n0, local_0_start, local_n0 * n1 * n2);
+          "%d: alloc_local, local_n0, local_0_start: %ld %ld "
+          "%ld\n",
+          rank, alloc_local, local_n0, local_0_start);
 
-  /*  n = fftw_mpi_local_size_3d_transposed(N, N, Nf, MPI_COMM_WORLD, &n0, &s0,
-     &n1, &s1); */
+  if ((real = fftw_alloc_real(2 * alloc_local)) == NULL) {
+    fprintf(stderr, "%s:%d: fftw_alloc_real failed\n", __FILE__, __LINE__);
+    exit(1);
+  }
+  if ((compl = fftw_alloc_complex(alloc_local)) == NULL) {
+    fprintf(stderr, "%s:%d: fftw_alloc_complex failed\n", __FILE__, __LINE__);
+    exit(1);
+  }
+
+  flags = FFTW_MPI_TRANSPOSED_OUT;
+  if ((plan_r2c = fftw_mpi_plan_dft_r2c_3d(n0, n1, n2, real, compl,
+                                           MPI_COMM_WORLD, flags)) == NULL) {
+    fprintf(stderr, "%s:%d: fftw_mpi_plan_dft_r2c_3d failed\n", __FILE__,
+            __LINE__);
+    exit(1);
+  }
+  fftw_destroy_plan(plan_r2c);
+  fftw_free(real);
+  fftw_free(compl );
   fftw_mpi_cleanup();
   MPI_CALL(MPI_Finalize());
 }
