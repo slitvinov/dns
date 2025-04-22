@@ -32,10 +32,9 @@ int main(void) {
   fftw_complex *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
       *U_hat1, *V_hat, *V_hat0, *V_hat1, *W_hat, *W_hat0, *W_hat1;
   int *dealias;
-  long i, j, k, m;
+  long i, j, k, l, m;
   int rk;
   int tstep;
-  int z;
   double a[] = {1 / 6.0, 1 / 3.0, 1 / 3.0, 1 / 6.0};
   double b[] = {0.5, 0.5, 1.0};
   double *CU;
@@ -95,13 +94,14 @@ int main(void) {
   kz[N / 2] = N / 2;
   for (i = -N / 2; i < 0; i++)
     kx[i + N] = i;
+  l = 0;
   for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < N; k++) {
-        z = (i * N + j) * N + k;
-        U[z] = sin(dx * i) * cos(dx * j) * cos(dx * k);
-        V[z] = -cos(dx * i) * sin(dx * j) * cos(dx * k);
-        W[z] = 0.0;
+        U[l] = sin(dx * i) * cos(dx * j) * cos(dx * k);
+        V[l] = -cos(dx * i) * sin(dx * j) * cos(dx * k);
+        W[l] = 0.0;
+	l++;
       }
 
   forward(U, U_hat);
@@ -109,20 +109,22 @@ int main(void) {
   forward(W, W_hat);
 
   kmax = 2. / 3. * (N / 2 + 1);
+  l = 0;
   for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < Nf; k++) {
-        z = (i * N + j) * Nf + k;
-        dealias[z] = (fabs(kx[i]) < kmax) && (fabs(kx[j]) < kmax) &&
+        dealias[l] = (fabs(kx[i]) < kmax) && (fabs(kx[j]) < kmax) &&
                      (fabs(kz[k]) < kmax);
+	l++;
       }
 
+  l = 0;
   for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < Nf; k++) {
-        z = (i * N + j) * Nf + k;
         m = kx[i] * kx[i] + kx[j] * kx[j] + kz[k] * kz[k];
-        kk[z] = m > 0 ? m : 1;
+        kk[l] = m > 0 ? m : 1;
+	l++;
       }
   t = 0.0;
   tstep = 0;
@@ -153,13 +155,14 @@ int main(void) {
           W[k] /= tot;
         }
       }
+      l = 0;
       for (i = 0; i < N; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
-            z = (i * N + j) * Nf + k;
-            curlZ[z] = I * (kx[i] * V_hat[z] - kx[j] * U_hat[z]);
-            curlY[z] = I * (kz[k] * U_hat[z] - kx[i] * W_hat[z]);
-            curlX[z] = I * (kx[j] * W_hat[z] - kz[k] * V_hat[z]);
+            curlZ[l] = I * (kx[i] * V_hat[l] - kx[j] * U_hat[l]);
+            curlY[l] = I * (kz[k] * U_hat[l] - kx[i] * W_hat[l]);
+            curlX[l] = I * (kx[j] * W_hat[l] - kz[k] * V_hat[l]);
+	    l++;
           }
       backward(curlX, CU);
       backward(curlY, CV);
@@ -183,14 +186,15 @@ int main(void) {
         dV[k] *= dealias[k] * dt;
         dW[k] *= dealias[k] * dt;
       }
+      l = 0;
       for (i = 0; i < N; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
-            z = (i * N + j) * Nf + k;
-            P_hat[z] = (dU[z] * kx[i] + dV[z] * kx[j] + dW[z] * kz[k]) / kk[z];
-            dU[z] -= P_hat[z] * kx[i] + nu * dt * kk[z] * U_hat[z];
-            dV[z] -= P_hat[z] * kx[j] + nu * dt * kk[z] * V_hat[z];
-            dW[z] -= P_hat[z] * kz[k] + nu * dt * kk[z] * W_hat[z];
+            P_hat[l] = (dU[l] * kx[i] + dV[l] * kx[j] + dW[l] * kz[k]) / kk[l];
+            dU[l] -= P_hat[l] * kx[i] + nu * dt * kk[l] * U_hat[l];
+            dV[l] -= P_hat[l] * kx[j] + nu * dt * kk[l] * V_hat[l];
+            dW[l] -= P_hat[l] * kz[k] + nu * dt * kk[l] * W_hat[l];
+	    l++;
           }
 
       if (rk < 3) {

@@ -2,8 +2,9 @@
 #include <fftw3.h>
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
-enum { n0 = 3, n1 = 4, n2 = 5, m = n0 * n1 * (n2 / 2 + 1) };
+enum { n0 = 2, n1 = 2, n2 = 2, m = n0 * n1 * (n2 / 2 + 1) };
 #define pi 3.141592653589793238
 
 int main(int argc, char **argv) {
@@ -11,7 +12,7 @@ int main(int argc, char **argv) {
   double om;
   double re;
   double *real;
-  fftw_complex * compl ;
+  fftw_complex *compl;
   fftw_complex *refer;
   fftw_plan plan_c2r;
   fftw_plan plan_r2c;
@@ -30,7 +31,7 @@ int main(int argc, char **argv) {
   compl = fftw_alloc_complex(m);
   refer = fftw_alloc_complex(m);
 
-  flags = FFTW_DESTROY_INPUT;
+  flags = FFTW_ESTIMATE;
   if ((plan_r2c = fftw_plan_dft_r2c_3d(n0, n1, n2, real, compl, flags)) ==
       NULL) {
     fprintf(stderr, "%s:%d: fftw_plan_dft_r2c_3d\n", __FILE__, __LINE__);
@@ -42,7 +43,7 @@ int main(int argc, char **argv) {
     exit(1);
   }
   for (i = 0; i < n0 * n1 * n2; i++)
-    real[i] = i;
+    real[i] = i + 1;
   k = 0;
   for (i0 = 0; i0 < n0; i0++)
     for (i1 = 0; i1 < n1; i1++)
@@ -62,17 +63,18 @@ int main(int argc, char **argv) {
         refer[k] = CMPLX(re, im);
         k++;
       }
-  fftw_execute(plan_r2c);
+  fftw_execute_dft_r2c(plan_r2c, real, compl);
   for (i = 0; i < m; i++)
-    printf("%d %+.16e %+.16e\n", i, cimag(compl [i]) - cimag(refer[i]),
-           creal(compl [i]) - creal(refer[i]));
+    printf("%d %+.16e %+.16e\n", i, cimag(compl[i]) - cimag(refer[i]),
+           creal(compl[i]) - creal(refer[i]));
 
-  fftw_execute(plan_c2r);
+  memset(real, 0, n0 * n1 * n2 * sizeof(double));
+  fftw_execute_dft_r2c(plan_c2r, real, compl);
   for (i = 0; i < n0 * n1 * n2; i++)
     printf("%g\n", real[i] / n0 / n1 / n2);
 
   fftw_free(real);
-  fftw_free(compl );
+  fftw_free(compl);
   fftw_free(refer);
   fftw_destroy_plan(plan_c2r);
   fftw_destroy_plan(plan_r2c);
