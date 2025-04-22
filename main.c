@@ -57,18 +57,18 @@ int main(void) {
   dt = 0.01;
   L = 2 * pi;
   dx = L / N;
-  U = fftw_alloc_real(2 * N * N * Nf);
-  V = fftw_alloc_real(2 * N * N * Nf);
-  W = fftw_alloc_real(2 * N * N * Nf);
-  U_tmp = fftw_alloc_real(2 * N * N * Nf);
-  V_tmp = fftw_alloc_real(2 * N * N * Nf);
-  W_tmp = fftw_alloc_real(2 * N * N * Nf);
-  CU = fftw_alloc_real(2 * N * N * Nf);
-  CV = fftw_alloc_real(2 * N * N * Nf);
-  CW = fftw_alloc_real(2 * N * N * Nf);
+  U = fftw_alloc_real(N * N * N);
+  V = fftw_alloc_real(N * N * N);
+  W = fftw_alloc_real(N * N * N);
+  U_tmp = fftw_alloc_real(N * N * N);
+  V_tmp = fftw_alloc_real(N * N * N);
+  W_tmp = fftw_alloc_real(N * N * N);
+  CU = fftw_alloc_real(N * N * N);
+  CV = fftw_alloc_real(N * N * N);
+  CW = fftw_alloc_real(N * N * N);
 
   kx = malloc(N * sizeof(double));
-  kz = malloc(N * sizeof(double));
+  kz = malloc(Nf * sizeof(double));
   kk = malloc(N * N * Nf * sizeof(double));
 
   dealias = malloc(N * N * Nf * sizeof(int));
@@ -95,9 +95,6 @@ int main(void) {
   kz[N / 2] = N / 2;
   for (i = -N / 2; i < 0; i++)
     kx[i + N] = i;
-  memset(U, 0, 2 * N * N * Nf * sizeof(double));
-  memset(V, 0, 2 * N * N * Nf * sizeof(double));
-  memset(W, 0, 2 * N * N * Nf * sizeof(double));
   for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < N; k++) {
