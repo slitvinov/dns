@@ -223,7 +223,6 @@ int main(int argc, char **argv) {
   fftw_free(dU);
   fftw_free(dV);
   fftw_free(dW);
-  fftw_free(kk);
   fftw_free(P_hat);
   fftw_free(U);
   fftw_free(U_hat);
