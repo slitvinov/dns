@@ -251,12 +251,8 @@ int main(int argc, char **argv) {
 
     if (tstep % 2 == 0) {
       s_in = 0.0;
-      for (i = 0; i < n0; i++)
-        for (j = 0; j < N; j++)
-          for (k = 0; k < N; k++) {
-            z = (i * N + j) * 2 * Nf + k;
-            s_in += U[z] * U[z] + V[z] * V[z] + W[z] * W[z];
-          }
+      for (k = 0; k < N * N * N; k++)
+        s_in += U[k] * U[k] + V[k] * V[k] + W[k] * W[k];
       s_in *= 0.5 * dx * dx * dx / L / L / L;
       MPI_Reduce(&s_in, &s_out, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
       if (rank == 0)

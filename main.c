@@ -230,12 +230,8 @@ int main(int argc, char **argv) {
 
     if (tstep % 2 == 0) {
       s = 0.0;
-      for (i = 0; i < N; i++)
-        for (j = 0; j < N; j++)
-          for (k = 0; k < N; k++) {
-            Z1;
-            s += U[z] * U[z] + V[z] * V[z] + W[z] * W[z];
-          }
+      for (k = 0; k < N * N * N; k++)
+	s += U[k] * U[k] + V[k] * V[k] + W[k] * W[k];
       s *= 0.5 * dx * dx * dx / L / L / L;
       fprintf(stderr, "k = %.16e\n", s);
     }
