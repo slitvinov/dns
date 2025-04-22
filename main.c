@@ -21,7 +21,6 @@ int main(void) {
   fftw_complex *dU;
   fftw_complex *dV;
   fftw_complex *dW;
-  fftw_complex one = I;
   fftw_complex *P_hat;
   fftw_complex *U_hat;
   fftw_complex *U_hat0;
@@ -166,9 +165,9 @@ int main(void) {
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
             z = (i * N + j) * Nf + k;
-            curlZ[z] = one * (kx[i] * V_hat[z] - kx[j] * U_hat[z]);
-            curlY[z] = one * (kz[k] * U_hat[z] - kx[i] * W_hat[z]);
-            curlX[z] = one * (kx[j] * W_hat[z] - kz[k] * V_hat[z]);
+            curlZ[z] = I * (kx[i] * V_hat[z] - kx[j] * U_hat[z]);
+            curlY[z] = I * (kz[k] * U_hat[z] - kx[i] * W_hat[z]);
+            curlX[z] = I * (kx[j] * W_hat[z] - kz[k] * V_hat[z]);
           }
       fftw_execute_dft_c2r(irfftn, curlX, CU);
       fftw_execute_dft_c2r(irfftn, curlY, CV);
