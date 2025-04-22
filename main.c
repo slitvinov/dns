@@ -62,10 +62,6 @@ int main(int argc, char **argv) {
   double *W;
   double *W_tmp;
   ptrdiff_t n;
-  ptrdiff_t n0;
-  ptrdiff_t n1;
-  ptrdiff_t s0;
-  ptrdiff_t s1;
 
   nu = 0.000625;
   T = 0.1;
@@ -75,9 +71,7 @@ int main(int argc, char **argv) {
   MPI_Init(&argc, &argv);
   fftw_mpi_init();
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  n = fftw_mpi_local_size_3d_transposed(N, N, Nf, MPI_COMM_WORLD, &n0, &s0, &n1,
-                                        &s1);
-  assert(n == n1 * N * Nf);
+  n = N * N * Nf;
   MALLOC(U, 2 * n);
   MALLOC(V, 2 * n);
   MALLOC(W, 2 * n);
@@ -118,12 +112,12 @@ int main(int argc, char **argv) {
   irfftn = fftw_mpi_plan_dft_c2r_3d(N, N, N, U_hat, U, MPI_COMM_WORLD,
                                     FFTW_MPI_TRANSPOSED_IN);
 
-  for (i = 0; i < n0; i++)
+  for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < N; k++) {
         z = (i * N + j) * 2 * Nf + k;
-        U[z] = sin(dx * (i + s0)) * cos(dx * j) * cos(dx * k);
-        V[z] = -cos(dx * (i + s0)) * sin(dx * j) * cos(dx * k);
+        U[z] = sin(dx * i) * cos(dx * j) * cos(dx * k);
+        V[z] = -cos(dx * i) * sin(dx * j) * cos(dx * k);
         W[z] = 0.0;
       }
 
@@ -132,19 +126,19 @@ int main(int argc, char **argv) {
   fftw_mpi_execute_dft_r2c(rfftn, W, W_hat);
 
   kmax = 2. / 3. * (N / 2 + 1);
-  for (i = 0; i < n1; i++)
+  for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < Nf; k++) {
         z = (i * N + j) * Nf + k;
-        dealias[z] = (fabs(kx[i + s1]) < kmax) * (fabs(kx[j]) < kmax) *
+        dealias[z] = (fabs(kx[i]) < kmax) * (fabs(kx[j]) < kmax) *
                      (fabs(kx[k]) < kmax);
       }
 
-  for (i = 0; i < n1; i++)
+  for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < Nf; k++) {
         z = (i * N + j) * Nf + k;
-        m = kx[i + s1] * kx[i + s1] + kx[j] * kx[j] + kx[k] * kx[k];
+        m = kx[i] * kx[i] + kx[j] * kx[j] + kx[k] * kx[k];
         kk[z] = m > 0 ? m : 1;
       }
   t = 0.0;
@@ -152,7 +146,7 @@ int main(int argc, char **argv) {
   while (t <= T) {
     t += dt;
     tstep++;
-    for (i = 0; i < n1; i++)
+    for (i = 0; i < N; i++)
       for (j = 0; j < N; j++)
         for (k = 0; k < Nf; k++) {
           z = (i * N + j) * Nf + k;
@@ -174,12 +168,12 @@ int main(int argc, char **argv) {
           W[k] /= tot;
         }
       }
-      for (i = 0; i < n1; i++)
+      for (i = 0; i < N; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
             z = (i * N + j) * Nf + k;
-            curlZ[z] = I * (kx[i + s1] * V_hat[z] - kx[j] * U_hat[z]);
-            curlY[z] = I * (kz[k] * U_hat[z] - kx[i + s1] * W_hat[z]);
+            curlZ[z] = I * (kx[i] * V_hat[z] - kx[j] * U_hat[z]);
+            curlY[z] = I * (kz[k] * U_hat[z] - kx[i] * W_hat[z]);
             curlX[z] = I * (kx[j] * W_hat[z] - kz[k] * V_hat[z]);
           }
       fftw_mpi_execute_dft_c2r(irfftn, curlX, CU);
@@ -190,7 +184,7 @@ int main(int argc, char **argv) {
         CV[k] /= tot;
         CW[k] /= tot;
       }
-      for (i = 0; i < n0; i++)
+      for (i = 0; i < N; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < N; k++) {
             z = (i * N + j) * 2 * Nf + k;
@@ -202,7 +196,7 @@ int main(int argc, char **argv) {
       fftw_mpi_execute_dft_r2c(rfftn, V_tmp, dV);
       fftw_mpi_execute_dft_r2c(rfftn, W_tmp, dW);
 
-      for (i = 0; i < n1; i++)
+      for (i = 0; i < N; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
             z = (i * N + j) * Nf + k;
@@ -210,19 +204,19 @@ int main(int argc, char **argv) {
             dV[z] *= dealias[z] * dt;
             dW[z] *= dealias[z] * dt;
           }
-      for (i = 0; i < n1; i++)
+      for (i = 0; i < N; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
             z = (i * N + j) * Nf + k;
             P_hat[z] =
-                (dU[z] * kx[i + s1] + dV[z] * kx[j] + dW[z] * kz[k]) / kk[z];
-            dU[z] -= P_hat[z] * kx[i + s1] + nu * dt * kk[z] * U_hat[z];
+                (dU[z] * kx[i] + dV[z] * kx[j] + dW[z] * kz[k]) / kk[z];
+            dU[z] -= P_hat[z] * kx[i] + nu * dt * kk[z] * U_hat[z];
             dV[z] -= P_hat[z] * kx[j] + nu * dt * kk[z] * V_hat[z];
             dW[z] -= P_hat[z] * kz[k] + nu * dt * kk[z] * W_hat[z];
           }
 
       if (rk < 3) {
-        for (i = 0; i < n1; i++)
+        for (i = 0; i < N; i++)
           for (j = 0; j < N; j++)
             for (k = 0; k < Nf; k++) {
               z = (i * N + j) * Nf + k;
@@ -231,7 +225,7 @@ int main(int argc, char **argv) {
               W_hat[z] = W_hat0[z] + b[rk] * dW[z];
             }
       }
-      for (i = 0; i < n1; i++)
+      for (i = 0; i < N; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
             z = (i * N + j) * Nf + k;
@@ -240,7 +234,7 @@ int main(int argc, char **argv) {
             W_hat1[z] += a[rk] * dW[z];
           }
     }
-    for (i = 0; i < n1; i++)
+    for (i = 0; i < N; i++)
       for (j = 0; j < N; j++)
         for (k = 0; k < Nf; k++) {
           z = (i * N + j) * Nf + k;
@@ -251,7 +245,7 @@ int main(int argc, char **argv) {
 
     if (tstep % 2 == 0) {
       s_in = 0.0;
-      for (i = 0; i < n0; i++)
+      for (i = 0; i < N; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < N; k++) {
             z = (i * N + j) * 2 * Nf + k;
