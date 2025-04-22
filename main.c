@@ -7,7 +7,7 @@
 
 enum { N = 1 << 5, Nf = N / 2 + 1, tot = N * N * N };
 #define MALLOC(var, nelem)                                                     \
-  if ((var = fftw_malloc(nelem * sizeof *var)) == NULL) {                      \
+  if ((var = fftw_malloc((nelem) * sizeof *var)) == NULL) {		\
     fprintf(stderr, "%s:%d: fftwf_malloc failed\n", __FILE__, __LINE__);       \
     exit(1);                                                                   \
   }
@@ -234,31 +234,31 @@ int main(int argc, char **argv) {
     memcpy(V_hat, V_hat1, sizeof(fftw_complex) * N * N * Nf);
     memcpy(W_hat, W_hat1, sizeof(fftw_complex) * N * N * Nf);
   }
-  free(U);
-  free(V);
-  free(W);
-  free(U_tmp);
-  free(V_tmp);
-  free(W_tmp);
-  free(CU);
-  free(CV);
-  free(CW);
-  free(dealias);
-  free(kk);
-  free(U_hat);
-  free(V_hat);
-  free(W_hat);
-  free(P_hat);
-  free(U_hat0);
-  free(V_hat0);
-  free(W_hat0);
-  free(U_hat1);
-  free(V_hat1);
-  free(W_hat1);
-  free(dU);
-  free(dV);
-  free(dW);
-  free(curlX);
-  free(curlY);
-  free(curlZ);
+  fftw_free(U);
+  fftw_free(V);
+  fftw_free(W);
+  fftw_free(U_tmp);
+  fftw_free(V_tmp);
+  fftw_free(W_tmp);
+  fftw_free(CU);
+  fftw_free(CV);
+  fftw_free(CW);
+  fftw_free(dealias);
+  fftw_free(kk);
+  fftw_free(U_hat);
+  fftw_free(V_hat);
+  fftw_free(W_hat);
+  fftw_free(P_hat);
+  fftw_free(U_hat0);
+  fftw_free(V_hat0);
+  fftw_free(W_hat0);
+  fftw_free(U_hat1);
+  fftw_free(V_hat1);
+  fftw_free(W_hat1);
+  fftw_free(dU);
+  fftw_free(dV);
+  fftw_free(dW);
+  fftw_free(curlX);
+  fftw_free(curlY);
+  fftw_free(curlZ);
 }
