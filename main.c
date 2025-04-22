@@ -116,11 +116,6 @@ int main(int argc, char **argv) {
   kz[N / 2] = N / 2;
   for (i = -N / 2; i < 0; i++)
     kx[i + N] = i;
-  /*
-  rfftn = fftw_plan_dft_r2c_3d(N, N, N, U, U_hat, FFTW_MEASURE);
-  irfftn = fftw_plan_dft_c2r_3d(N, N, N, U_hat, U, FFTW_MEASURE);
-  */
-
   memset(U, 0, 2 * N * N * Nf * sizeof(double));
   memset(V, 0, 2 * N * N * Nf * sizeof(double));
   memset(W, 0, 2 * N * N * Nf * sizeof(double));
