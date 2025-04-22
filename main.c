@@ -7,7 +7,7 @@
 
 enum { N = 1 << 5, Nf = N / 2 + 1, tot = N * N * N };
 #define MALLOC(var, nelem)                                                     \
-  if ((var = fftw_malloc((nelem) * sizeof *var)) == NULL) {		\
+  if ((var = fftw_malloc((nelem) * sizeof *var)) == NULL) {                    \
     fprintf(stderr, "%s:%d: fftwf_malloc failed\n", __FILE__, __LINE__);       \
     exit(1);                                                                   \
   }
@@ -82,15 +82,16 @@ int main(int argc, char **argv) {
   L = 2 * pi;
   dx = L / N;
   MPI_Init(&argc, &argv);
-  MALLOC(U, 2 * N * N * Nf);
-  MALLOC(V, 2 * N * N * Nf);
-  MALLOC(W, 2 * N * N * Nf);
-  MALLOC(U_tmp, 2 * N * N * Nf);
-  MALLOC(V_tmp, 2 * N * N * Nf);
-  MALLOC(W_tmp, 2 * N * N * Nf);
-  MALLOC(CU, 2 * N * N * Nf);
-  MALLOC(CV, 2 * N * N * Nf);
-  MALLOC(CW, 2 * N * N * Nf);
+  U = fftw_alloc_real(2 * N * N * Nf);
+  V = fftw_alloc_real(2 * N * N * Nf);
+  W = fftw_alloc_real(2 * N * N * Nf);
+  U_tmp = fftw_alloc_real(2 * N * N * Nf);
+  V_tmp = fftw_alloc_real(2 * N * N * Nf);
+  W_tmp = fftw_alloc_real(2 * N * N * Nf);
+  CU = fftw_alloc_real(2 * N * N * Nf);
+  CV = fftw_alloc_real(2 * N * N * Nf);
+  CW = fftw_alloc_real(2 * N * N * Nf);
+
   MALLOC(dealias, N * N * Nf);
   MALLOC(kk, N * N * Nf);
   MALLOC(U_hat, N * N * Nf);
