@@ -14,6 +14,9 @@ enum { N = 1 << 5, Nf = N / 2 + 1, tot = N * N * N };
 
 static fftw_plan irfftn;
 static fftw_plan rfftn;
+#define Z0 z = (i * N + j) * Nf + k
+#define Z1 z = (i * N + j) * 2 * Nf + k
+
 static void forward(double *U, fftw_complex *U_hat) {
   fftw_mpi_execute_dft_r2c(rfftn, U, U_hat);
 }
@@ -24,8 +27,7 @@ static void backward(fftw_complex *U_hat, double *U) {
 int main(int argc, char **argv) {
   double dx;
   double L;
-  double s_in;
-  double s_out;
+  double s;
   fftw_complex *curlX;
   fftw_complex *curlY;
   fftw_complex *curlZ;
@@ -120,7 +122,7 @@ int main(int argc, char **argv) {
   for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < N; k++) {
-        z = (i * N + j) * 2 * Nf + k;
+        Z1;
         U[z] = sin(dx * i) * cos(dx * j) * cos(dx * k);
         V[z] = -cos(dx * i) * sin(dx * j) * cos(dx * k);
         W[z] = 0.0;
@@ -134,7 +136,7 @@ int main(int argc, char **argv) {
   for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < Nf; k++) {
-        z = (i * N + j) * Nf + k;
+        Z0;
         dealias[z] =
             (fabs(kx[i]) < kmax) * (fabs(kx[j]) < kmax) * (fabs(kx[k]) < kmax);
       }
@@ -142,7 +144,7 @@ int main(int argc, char **argv) {
   for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < Nf; k++) {
-        z = (i * N + j) * Nf + k;
+        Z0;
         m = kx[i] * kx[i] + kx[j] * kx[j] + kx[k] * kx[k];
         kk[z] = m > 0 ? m : 1;
       }
@@ -171,7 +173,7 @@ int main(int argc, char **argv) {
       for (i = 0; i < N; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
-            z = (i * N + j) * Nf + k;
+            Z0;
             curlZ[z] = I * (kx[i] * V_hat[z] - kx[j] * U_hat[z]);
             curlY[z] = I * (kz[k] * U_hat[z] - kx[i] * W_hat[z]);
             curlX[z] = I * (kx[j] * W_hat[z] - kz[k] * V_hat[z]);
@@ -187,7 +189,7 @@ int main(int argc, char **argv) {
       for (i = 0; i < N; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < N; k++) {
-            z = (i * N + j) * 2 * Nf + k;
+            Z1;
             U_tmp[z] = V[z] * CW[z] - W[z] * CV[z];
             V_tmp[z] = W[z] * CU[z] - U[z] * CW[z];
             W_tmp[z] = U[z] * CV[z] - V[z] * CU[z];
@@ -204,7 +206,7 @@ int main(int argc, char **argv) {
       for (i = 0; i < N; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
-            z = (i * N + j) * Nf + k;
+            Z0;
             P_hat[z] = (dU[z] * kx[i] + dV[z] * kx[j] + dW[z] * kz[k]) / kk[z];
             dU[z] -= P_hat[z] * kx[i] + nu * dt * kk[z] * U_hat[z];
             dV[z] -= P_hat[z] * kx[j] + nu * dt * kk[z] * V_hat[z];
@@ -212,16 +214,16 @@ int main(int argc, char **argv) {
           }
 
       if (rk < 3) {
-	for (k = 0; k < N * N * Nf; k++) {
-	  U_hat[k] = U_hat0[k] + b[rk] * dU[k];
-	  V_hat[k] = V_hat0[k] + b[rk] * dV[k];
-	  W_hat[k] = W_hat0[k] + b[rk] * dW[k];
-	}
+        for (k = 0; k < N * N * Nf; k++) {
+          U_hat[k] = U_hat0[k] + b[rk] * dU[k];
+          V_hat[k] = V_hat0[k] + b[rk] * dV[k];
+          W_hat[k] = W_hat0[k] + b[rk] * dW[k];
+        }
       }
       for (k = 0; k < N * N * Nf; ++k) {
-	U_hat1[k] += a[rk] * dU[k];
-	V_hat1[k] += a[rk] * dV[k];
-	W_hat1[k] += a[rk] * dW[k];
+        U_hat1[k] += a[rk] * dU[k];
+        V_hat1[k] += a[rk] * dV[k];
+        W_hat1[k] += a[rk] * dW[k];
       }
     }
     memcpy(U_hat, U_hat1, sizeof(fftw_complex) * N * N * Nf);
@@ -229,17 +231,15 @@ int main(int argc, char **argv) {
     memcpy(W_hat, W_hat1, sizeof(fftw_complex) * N * N * Nf);
 
     if (tstep % 2 == 0) {
-      s_in = 0.0;
+      s = 0.0;
       for (i = 0; i < N; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < N; k++) {
-            z = (i * N + j) * 2 * Nf + k;
-            s_in += U[z] * U[z] + V[z] * V[z] + W[z] * W[z];
+            Z1;
+            s += U[z] * U[z] + V[z] * V[z] + W[z] * W[z];
           }
-      s_in *= 0.5 * dx * dx * dx / L / L / L;
-      MPI_Reduce(&s_in, &s_out, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-      if (rank == 0)
-        fprintf(stderr, "k = %.16e\n", s_out);
+      s *= 0.5 * dx * dx * dx / L / L / L;
+      fprintf(stderr, "k = %.16e\n", s);
     }
   }
   free(U);
