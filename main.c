@@ -85,8 +85,8 @@ int main(int argc, char **argv) {
   MALLOC(CU, 2 * N * N * Nf);
   MALLOC(CV, 2 * N * N * Nf);
   MALLOC(CW, 2 * N * N * Nf);
-  MALLOC(dealias, 2 * N * N * Nf);
-  MALLOC(kk, 2 * N * N * Nf);
+  MALLOC(dealias, N * N * Nf);
+  MALLOC(kk, N * N * Nf);
   MALLOC(U_hat, N * N * Nf);
   MALLOC(V_hat, N * N * Nf);
   MALLOC(W_hat, N * N * Nf);
