@@ -12,7 +12,6 @@ enum { N = 1 << 5, Nf = N / 2 + 1, tot = N * N * N };
     exit(1);                                                                   \
   }
 
-static fftw_plan rfftn;
 #define Z0 z = (i * N + j) * Nf + k
 #define Z1 z = (i * N + j) * 2 * Nf + k
 static void forward(double *U, fftw_complex *U_hat) {
@@ -117,9 +116,6 @@ int main(int argc, char **argv) {
   kz[N / 2] = N / 2;
   for (i = -N / 2; i < 0; i++)
     kx[i + N] = i;
-
-  rfftn =
-      fftw_mpi_plan_dft_r2c_3d(N, N, N, U, U_hat, MPI_COMM_WORLD, FFTW_MEASURE);
   /*
   rfftn = fftw_plan_dft_r2c_3d(N, N, N, U, U_hat, FFTW_MEASURE);
   irfftn = fftw_plan_dft_c2r_3d(N, N, N, U_hat, U, FFTW_MEASURE);
@@ -270,7 +266,6 @@ int main(int argc, char **argv) {
   free(curlX);
   free(curlY);
   free(curlZ);
-  fftw_destroy_plan(rfftn);
   fftw_mpi_cleanup();
   MPI_Finalize();
 }
