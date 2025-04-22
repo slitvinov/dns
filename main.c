@@ -17,8 +17,8 @@ enum { N = 1 << 5, Nf = N / 2 + 1, tot = N * N * N };
 static void forward(double *U, fftw_complex *U_hat) {
   fftw_plan plan;
   plan =
-      fftw_mpi_plan_dft_r2c_3d(N, N, N, U, U_hat, MPI_COMM_WORLD, FFTW_MEASURE);
-  fftw_mpi_execute_dft_r2c(plan, U, U_hat);
+      fftw_plan_dft_r2c_3d(N, N, N, U, U_hat, FFTW_MEASURE);
+  fftw_execute_dft_r2c(plan, U, U_hat);
   fftw_destroy_plan(plan);
 }
 static void backward(fftw_complex *U_hat, double *U) {
