@@ -163,9 +163,9 @@ int main(int argc, char **argv) {
         }
     for (rk = 0; rk < 4; rk++) {
       if (rk > 0) {
-        fftw_mpi_execute_dft_c2r(irfftn, U_hat, U);
-        fftw_mpi_execute_dft_c2r(irfftn, V_hat, V);
-        fftw_mpi_execute_dft_c2r(irfftn, W_hat, W);
+        backward(U_hat, U);
+        backward(V_hat, V);
+        backward(W_hat, W);
         for (k = 0; k < 2 * N * N * Nf; k++) {
           U[k] /= tot;
           V[k] /= tot;
@@ -180,9 +180,9 @@ int main(int argc, char **argv) {
             curlY[z] = I * (kz[k] * U_hat[z] - kx[i] * W_hat[z]);
             curlX[z] = I * (kx[j] * W_hat[z] - kz[k] * V_hat[z]);
           }
-      fftw_mpi_execute_dft_c2r(irfftn, curlX, CU);
-      fftw_mpi_execute_dft_c2r(irfftn, curlY, CV);
-      fftw_mpi_execute_dft_c2r(irfftn, curlZ, CW);
+      backward(curlX, CU);
+      backward(curlY, CV);
+      backward(curlZ, CW);
       for (k = 0; k < 2 * N * N * Nf; k++) {
         CU[k] /= tot;
         CV[k] /= tot;
