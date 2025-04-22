@@ -113,17 +113,17 @@ int main(int argc, char **argv) {
     kx[i + N] = i;
 
   rfftn = fftw_mpi_plan_dft_r2c_3d(N, N, N, U, U_hat, MPI_COMM_WORLD,
-				   FFTW_MPI_TRANSPOSED_OUT);
+                                   FFTW_MPI_TRANSPOSED_OUT);
   irfftn = fftw_mpi_plan_dft_c2r_3d(N, N, N, U_hat, U, MPI_COMM_WORLD,
-				    FFTW_MPI_TRANSPOSED_IN);
+                                    FFTW_MPI_TRANSPOSED_IN);
 
   for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < N; k++) {
-	z = (i * N + j) * 2 * Nf + k;
-	U[z] = sin(dx * i) * cos(dx * j) * cos(dx * k);
-	V[z] = -cos(dx * i) * sin(dx * j) * cos(dx * k);
-	W[z] = 0.0;
+        z = (i * N + j) * 2 * Nf + k;
+        U[z] = sin(dx * i) * cos(dx * j) * cos(dx * k);
+        V[z] = -cos(dx * i) * sin(dx * j) * cos(dx * k);
+        W[z] = 0.0;
       }
 
   forward(U, U_hat);
@@ -134,17 +134,17 @@ int main(int argc, char **argv) {
   for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < Nf; k++) {
-	z = (i * N + j) * Nf + k;
-	dealias[z] = (fabs(kx[i]) < kmax) * (fabs(kx[j]) < kmax) *
-		     (fabs(kx[k]) < kmax);
+        z = (i * N + j) * Nf + k;
+        dealias[z] =
+            (fabs(kx[i]) < kmax) * (fabs(kx[j]) < kmax) * (fabs(kx[k]) < kmax);
       }
 
   for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < Nf; k++) {
-	z = (i * N + j) * Nf + k;
-	m = kx[i] * kx[i] + kx[j] * kx[j] + kx[k] * kx[k];
-	kk[z] = m > 0 ? m : 1;
+        z = (i * N + j) * Nf + k;
+        m = kx[i] * kx[i] + kx[j] * kx[j] + kx[k] * kx[k];
+        kk[z] = m > 0 ? m : 1;
       }
   t = 0.0;
   tstep = 0;
@@ -159,102 +159,96 @@ int main(int argc, char **argv) {
     memcpy(W_hat1, W_hat, sizeof(fftw_complex) * N * N * Nf);
     for (rk = 0; rk < 4; rk++) {
       if (rk > 0) {
-	backward(U_hat, U);
-	backward(V_hat, V);
-	backward(W_hat, W);
-	for (k = 0; k < 2 * N * N * Nf; k++) {
-	  U[k] /= tot;
-	  V[k] /= tot;
-	  W[k] /= tot;
-	}
+        backward(U_hat, U);
+        backward(V_hat, V);
+        backward(W_hat, W);
+        for (k = 0; k < 2 * N * N * Nf; k++) {
+          U[k] /= tot;
+          V[k] /= tot;
+          W[k] /= tot;
+        }
       }
       for (i = 0; i < N; i++)
-	for (j = 0; j < N; j++)
-	  for (k = 0; k < Nf; k++) {
-	    z = (i * N + j) * Nf + k;
-	    curlZ[z] = I * (kx[i] * V_hat[z] - kx[j] * U_hat[z]);
-	    curlY[z] = I * (kz[k] * U_hat[z] - kx[i] * W_hat[z]);
-	    curlX[z] = I * (kx[j] * W_hat[z] - kz[k] * V_hat[z]);
-	  }
+        for (j = 0; j < N; j++)
+          for (k = 0; k < Nf; k++) {
+            z = (i * N + j) * Nf + k;
+            curlZ[z] = I * (kx[i] * V_hat[z] - kx[j] * U_hat[z]);
+            curlY[z] = I * (kz[k] * U_hat[z] - kx[i] * W_hat[z]);
+            curlX[z] = I * (kx[j] * W_hat[z] - kz[k] * V_hat[z]);
+          }
       backward(curlX, CU);
       backward(curlY, CV);
       backward(curlZ, CW);
       for (k = 0; k < 2 * N * N * Nf; k++) {
-	CU[k] /= tot;
-	CV[k] /= tot;
-	CW[k] /= tot;
+        CU[k] /= tot;
+        CV[k] /= tot;
+        CW[k] /= tot;
       }
       for (i = 0; i < N; i++)
-	for (j = 0; j < N; j++)
-	  for (k = 0; k < N; k++) {
-	    z = (i * N + j) * 2 * Nf + k;
-	    U_tmp[z] = V[z] * CW[z] - W[z] * CV[z];
-	    V_tmp[z] = W[z] * CU[z] - U[z] * CW[z];
-	    W_tmp[z] = U[z] * CV[z] - V[z] * CU[z];
-	  }
+        for (j = 0; j < N; j++)
+          for (k = 0; k < N; k++) {
+            z = (i * N + j) * 2 * Nf + k;
+            U_tmp[z] = V[z] * CW[z] - W[z] * CV[z];
+            V_tmp[z] = W[z] * CU[z] - U[z] * CW[z];
+            W_tmp[z] = U[z] * CV[z] - V[z] * CU[z];
+          }
       forward(U_tmp, dU);
       forward(V_tmp, dV);
       forward(W_tmp, dW);
 
       for (i = 0; i < N; i++)
-	for (j = 0; j < N; j++)
-	  for (k = 0; k < Nf; k++) {
-	    z = (i * N + j) * Nf + k;
-	    dU[z] *= dealias[z] * dt;
-	    dV[z] *= dealias[z] * dt;
-	    dW[z] *= dealias[z] * dt;
-	  }
+        for (j = 0; j < N; j++)
+          for (k = 0; k < Nf; k++) {
+            z = (i * N + j) * Nf + k;
+            dU[z] *= dealias[z] * dt;
+            dV[z] *= dealias[z] * dt;
+            dW[z] *= dealias[z] * dt;
+          }
       for (i = 0; i < N; i++)
-	for (j = 0; j < N; j++)
-	  for (k = 0; k < Nf; k++) {
-	    z = (i * N + j) * Nf + k;
-	    P_hat[z] =
-		(dU[z] * kx[i] + dV[z] * kx[j] + dW[z] * kz[k]) / kk[z];
-	    dU[z] -= P_hat[z] * kx[i] + nu * dt * kk[z] * U_hat[z];
-	    dV[z] -= P_hat[z] * kx[j] + nu * dt * kk[z] * V_hat[z];
-	    dW[z] -= P_hat[z] * kz[k] + nu * dt * kk[z] * W_hat[z];
-	  }
+        for (j = 0; j < N; j++)
+          for (k = 0; k < Nf; k++) {
+            z = (i * N + j) * Nf + k;
+            P_hat[z] = (dU[z] * kx[i] + dV[z] * kx[j] + dW[z] * kz[k]) / kk[z];
+            dU[z] -= P_hat[z] * kx[i] + nu * dt * kk[z] * U_hat[z];
+            dV[z] -= P_hat[z] * kx[j] + nu * dt * kk[z] * V_hat[z];
+            dW[z] -= P_hat[z] * kz[k] + nu * dt * kk[z] * W_hat[z];
+          }
 
       if (rk < 3) {
-	for (i = 0; i < N; i++)
-	  for (j = 0; j < N; j++)
-	    for (k = 0; k < Nf; k++) {
-	      z = (i * N + j) * Nf + k;
-	      U_hat[z] = U_hat0[z] + b[rk] * dU[z];
-	      V_hat[z] = V_hat0[z] + b[rk] * dV[z];
-	      W_hat[z] = W_hat0[z] + b[rk] * dW[z];
-	    }
+        for (i = 0; i < N; i++)
+          for (j = 0; j < N; j++)
+            for (k = 0; k < Nf; k++) {
+              z = (i * N + j) * Nf + k;
+              U_hat[z] = U_hat0[z] + b[rk] * dU[z];
+              V_hat[z] = V_hat0[z] + b[rk] * dV[z];
+              W_hat[z] = W_hat0[z] + b[rk] * dW[z];
+            }
       }
       for (i = 0; i < N; i++)
-	for (j = 0; j < N; j++)
-	  for (k = 0; k < Nf; k++) {
-	    z = (i * N + j) * Nf + k;
-	    U_hat1[z] += a[rk] * dU[z];
-	    V_hat1[z] += a[rk] * dV[z];
-	    W_hat1[z] += a[rk] * dW[z];
-	  }
+        for (j = 0; j < N; j++)
+          for (k = 0; k < Nf; k++) {
+            z = (i * N + j) * Nf + k;
+            U_hat1[z] += a[rk] * dU[z];
+            V_hat1[z] += a[rk] * dV[z];
+            W_hat1[z] += a[rk] * dW[z];
+          }
     }
-    for (i = 0; i < N; i++)
-      for (j = 0; j < N; j++)
-	for (k = 0; k < Nf; k++) {
-	  z = (i * N + j) * Nf + k;
-	  U_hat[z] = U_hat1[z];
-	  V_hat[z] = V_hat1[z];
-	  W_hat[z] = W_hat1[z];
-	}
+    memcpy(U_hat, U_hat1, sizeof(fftw_complex) * N * N * Nf);
+    memcpy(V_hat, V_hat1, sizeof(fftw_complex) * N * N * Nf);
+    memcpy(W_hat, W_hat1, sizeof(fftw_complex) * N * N * Nf);
 
     if (tstep % 2 == 0) {
       s_in = 0.0;
       for (i = 0; i < N; i++)
-	for (j = 0; j < N; j++)
-	  for (k = 0; k < N; k++) {
-	    z = (i * N + j) * 2 * Nf + k;
-	    s_in += U[z] * U[z] + V[z] * V[z] + W[z] * W[z];
-	  }
+        for (j = 0; j < N; j++)
+          for (k = 0; k < N; k++) {
+            z = (i * N + j) * 2 * Nf + k;
+            s_in += U[z] * U[z] + V[z] * V[z] + W[z] * W[z];
+          }
       s_in *= 0.5 * dx * dx * dx / L / L / L;
       MPI_Reduce(&s_in, &s_out, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
       if (rank == 0)
-	fprintf(stderr, "k = %.16e\n", s_out);
+        fprintf(stderr, "k = %.16e\n", s_out);
     }
   }
   free(U);
