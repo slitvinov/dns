@@ -30,16 +30,11 @@ static void backward(fftw_complex *U_hat, double *U) {
 }
 
 int main(int argc, char **argv) {
-  double dx;
-  double L;
-  double s;
+  double dx, L, s;
   fftw_complex *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
       *U_hat1, *V_hat, *V_hat0, *V_hat1, *W_hat, *W_hat0, *W_hat1;
   int *dealias;
-  int i;
-  int j;
-  int k;
-  int m;
+  long i, j, k, m;
   int rk;
   int tstep;
   int z;
@@ -48,19 +43,14 @@ int main(int argc, char **argv) {
   double *CU;
   double *CV;
   double *CW;
-  double *kk;
-  double kmax;
-  double kx[N];
-  double kz[Nf];
-  double nu, dt, T;
-  double pi = 3.141592653589793238;
-  double t;
+  double *kk, *kx, *kz, kmax, nu, dt, T, t;
   double *U;
   double *U_tmp;
   double *V;
   double *V_tmp;
   double *W;
   double *W_tmp;
+  double pi = 3.141592653589793238;
 
   nu = 0.000625;
   T = 0.1;
@@ -78,8 +68,11 @@ int main(int argc, char **argv) {
   CV = fftw_alloc_real(2 * N * N * Nf);
   CW = fftw_alloc_real(2 * N * N * Nf);
 
-  MALLOC(dealias, N * N * Nf);
-  MALLOC(kk, N * N * Nf);
+  kx = malloc(N * sizeof(double));
+  kz = malloc(N * sizeof(double));
+  kk = malloc(N * N * Nf * sizeof(double));
+
+  dealias = malloc(N * N * Nf * sizeof(int));
   MALLOC(U_hat, N * N * Nf);
   MALLOC(V_hat, N * N * Nf);
   MALLOC(W_hat, N * N * Nf);
@@ -221,31 +214,35 @@ int main(int argc, char **argv) {
     memcpy(V_hat, V_hat1, sizeof(fftw_complex) * N * N * Nf);
     memcpy(W_hat, W_hat1, sizeof(fftw_complex) * N * N * Nf);
   }
-  fftw_free(U);
-  fftw_free(V);
-  fftw_free(W);
-  fftw_free(U_tmp);
-  fftw_free(V_tmp);
-  fftw_free(W_tmp);
   fftw_free(CU);
-  fftw_free(CV);
-  fftw_free(CW);
-  fftw_free(dealias);
-  fftw_free(kk);
-  fftw_free(U_hat);
-  fftw_free(V_hat);
-  fftw_free(W_hat);
-  fftw_free(P_hat);
-  fftw_free(U_hat0);
-  fftw_free(V_hat0);
-  fftw_free(W_hat0);
-  fftw_free(U_hat1);
-  fftw_free(V_hat1);
-  fftw_free(W_hat1);
-  fftw_free(dU);
-  fftw_free(dV);
-  fftw_free(dW);
   fftw_free(curlX);
   fftw_free(curlY);
   fftw_free(curlZ);
+  fftw_free(CV);
+  fftw_free(CW);
+  fftw_free(dU);
+  fftw_free(dV);
+  fftw_free(dW);
+  fftw_free(kk);
+  fftw_free(P_hat);
+  fftw_free(U);
+  fftw_free(U_hat);
+  fftw_free(U_hat0);
+  fftw_free(U_hat1);
+  fftw_free(U_tmp);
+  fftw_free(V);
+  fftw_free(V_hat);
+  fftw_free(V_hat0);
+  fftw_free(V_hat1);
+  fftw_free(V_tmp);
+  fftw_free(W);
+  fftw_free(W_hat);
+  fftw_free(W_hat0);
+  fftw_free(W_hat1);
+  fftw_free(W_tmp);
+
+  free(dealias);
+  free(kx);
+  free(kz);
+  free(kk);
 }
