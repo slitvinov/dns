@@ -33,22 +33,8 @@ int main(int argc, char **argv) {
   double dx;
   double L;
   double s;
-  fftw_complex *curlX;
-  fftw_complex *curlY;
-  fftw_complex *curlZ;
-  fftw_complex *dU;
-  fftw_complex *dV;
-  fftw_complex *dW;
-  fftw_complex *P_hat;
-  fftw_complex *U_hat;
-  fftw_complex *U_hat0;
-  fftw_complex *U_hat1;
-  fftw_complex *V_hat;
-  fftw_complex *V_hat0;
-  fftw_complex *V_hat1;
-  fftw_complex *W_hat;
-  fftw_complex *W_hat0;
-  fftw_complex *W_hat1;
+  fftw_complex *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
+      *U_hat1, *V_hat, *V_hat0, *V_hat1, *W_hat, *W_hat0, *W_hat1;
   int *dealias;
   int i;
   int j;
