@@ -251,7 +251,7 @@ int main(int argc, char **argv) {
 
     if (tstep % 2 == 0) {
       s_in = 0.0;
-      for (k = 0; k < N * N * N; k++)
+      for (k = 0; k < n0 * N * N; k++)
         s_in += U[k] * U[k] + V[k] * V[k] + W[k] * W[k];
       s_in *= 0.5 * dx * dx * dx / L / L / L;
       MPI_Reduce(&s_in, &s_out, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
