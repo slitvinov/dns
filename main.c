@@ -187,7 +187,7 @@ int main(int argc, char **argv) {
         CV[k] /= tot;
         CW[k] /= tot;
       }
-      for (k = 0; k < N * N * N; k++) {
+      for (k = 0; k < 2 * N * N * Nf; k++) {
 	U_tmp[k] = V[k] * CW[k] - W[k] * CV[k];
 	V_tmp[k] = W[k] * CU[k] - U[k] * CW[k];
 	W_tmp[k] = U[k] * CV[k] - V[k] * CU[k];
@@ -230,7 +230,7 @@ int main(int argc, char **argv) {
 
     if (tstep % 2 == 0) {
       s = 0.0;
-      for (k = 0; k < N * N * N; k++)
+      for (k = 0; k < N * N * 2 * Nf; k++)
 	s += U[k] * U[k] + V[k] * V[k] + W[k] * W[k];
       s *= 0.5 * dx * dx * dx / L / L / L;
       fprintf(stderr, "k = %.16e\n", s);
