@@ -32,16 +32,8 @@ int main(void) {
   int tstep;
   double a[] = {1 / 6.0, 1 / 3.0, 1 / 3.0, 1 / 6.0};
   double b[] = {0.5, 0.5, 1.0};
-  double *CU;
-  double *CV;
-  double *CW;
-  double *kk, *kx, *kz, kmax, nu, dt, T, t;
-  double *U;
-  double *U_tmp;
-  double *V;
-  double *V_tmp;
-  double *W;
-  double *W_tmp;
+  double *CU, *CV, *CW, *kk, *kx, *kz, kmax, nu, dt, T, t, *U, *U_tmp, *V,
+      *V_tmp, *W, *W_tmp;
   double pi = 3.141592653589793238;
 
   feclearexcept(FE_ALL_EXCEPT);
