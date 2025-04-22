@@ -11,6 +11,15 @@ enum { N = 1 << 5, Nf = N / 2 + 1, tot = N * N * N };
     exit(1);                                                                   \
   }
 
+static fftw_plan irfftn;
+static fftw_plan rfftn;
+static void forward(double *U, fftw_complex *U_hat) {
+  fftw_mpi_execute_dft_r2c(rfftn, U, U_hat);
+}
+static void backward(fftw_complex *U_hat, double *U) {
+  fftw_mpi_execute_dft_c2r(irfftn, U_hat, U);
+}
+
 int main(int argc, char **argv) {
   double dx;
   double L;
@@ -32,8 +41,6 @@ int main(int argc, char **argv) {
   fftw_complex *W_hat;
   fftw_complex *W_hat0;
   fftw_complex *W_hat1;
-  fftw_plan irfftn;
-  fftw_plan rfftn;
   int *dealias;
   int i;
   int j;
