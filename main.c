@@ -11,13 +11,6 @@ enum { N = 1 << 5, Nf = N / 2 + 1, tot = N * N * N };
     exit(1);                                                                   \
   }
 
-#define MPI_CALL(command)                                                      \
-  if ((ierr = (command)) != MPI_SUCCESS) {                                     \
-    MPI_Error_string(ierr, err_buffer, &resultlen);                            \
-    fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, err_buffer);            \
-    exit(1);                                                                   \
-  }
-
 int main(int argc, char **argv) {
   char err_buffer[MPI_MAX_ERROR_STRING];
   double dx;
@@ -83,9 +76,9 @@ int main(int argc, char **argv) {
   dt = 0.01;
   L = 2 * pi;
   dx = L / N;
-  MPI_CALL(MPI_Init(&argc, &argv));
+  MPI_Init(&argc, &argv);
   fftw_mpi_init();
-  MPI_CALL(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   n = fftw_mpi_local_size_3d_transposed(N, N, Nf, MPI_COMM_WORLD, &n0, &s0, &n1,
                                         &s1);
   assert(n == n1 * N * Nf);
@@ -269,8 +262,7 @@ int main(int argc, char **argv) {
             s_in += U[z] * U[z] + V[z] * V[z] + W[z] * W[z];
           }
       s_in *= 0.5 * dx * dx * dx / L / L / L;
-      MPI_CALL(
-          MPI_Reduce(&s_in, &s_out, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD));
+      MPI_Reduce(&s_in, &s_out, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
       if (rank == 0)
         fprintf(stderr, "k = %.16e\n", s_out);
     }
@@ -305,5 +297,5 @@ int main(int argc, char **argv) {
   fftw_destroy_plan(irfftn);
   fftw_destroy_plan(rfftn);
   fftw_mpi_cleanup();
-  MPI_CALL(MPI_Finalize());
+  MPI_Finalize();
 }
