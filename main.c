@@ -16,7 +16,6 @@ static fftw_plan irfftn;
 static fftw_plan rfftn;
 #define Z0 z = (i * N + j) * Nf + k
 #define Z1 z = (i * N + j) * 2 * Nf + k
-
 static void forward(double *U, fftw_complex *U_hat) {
   fftw_mpi_execute_dft_r2c(rfftn, U, U_hat);
 }
@@ -118,6 +117,10 @@ int main(int argc, char **argv) {
                                    FFTW_MPI_TRANSPOSED_OUT);
   irfftn = fftw_mpi_plan_dft_c2r_3d(N, N, N, U_hat, U, MPI_COMM_WORLD,
                                     FFTW_MPI_TRANSPOSED_IN);
+  /*
+  rfftn = fftw_plan_dft_r2c_3d(N, N, N, U, U_hat, FFTW_MEASURE);
+  irfftn = fftw_plan_dft_c2r_3d(N, N, N, U_hat, U, FFTW_MEASURE);
+  */
 
   for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
