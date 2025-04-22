@@ -1,6 +1,6 @@
 #include <assert.h>
 #include <complex.h>
-#include <fftw3.h>
+#include <fftw3-mpi.h>
 #include <math.h>
 #include <stdlib.h>
 
@@ -11,16 +11,18 @@ enum { N = 1 << 5, Nf = N / 2 + 1, tot = N * N * N };
     exit(1);                                                                   \
   }
 
-int main(void) {
+int main(int argc, char **argv) {
   double dx;
   double L;
   double s_in;
+  double s_out;
   fftw_complex *curlX;
   fftw_complex *curlY;
   fftw_complex *curlZ;
   fftw_complex *dU;
   fftw_complex *dV;
   fftw_complex *dW;
+  fftw_complex one = I;
   fftw_complex *P_hat;
   fftw_complex *U_hat;
   fftw_complex *U_hat0;
@@ -38,6 +40,7 @@ int main(void) {
   int j;
   int k;
   int m;
+  int rank;
   int rk;
   int tstep;
   int z;
@@ -60,13 +63,22 @@ int main(void) {
   double *W;
   double *W_tmp;
   ptrdiff_t n;
+  ptrdiff_t n0;
+  ptrdiff_t n1;
+  ptrdiff_t s0;
+  ptrdiff_t s1;
 
   nu = 0.000625;
   T = 0.1;
   dt = 0.01;
   L = 2 * pi;
   dx = L / N;
-  n = N * N * Nf;
+  MPI_Init(&argc, &argv);
+  fftw_mpi_init();
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  n = fftw_mpi_local_size_3d_transposed(N, N, Nf, MPI_COMM_WORLD, &n0, &s0, &n1,
+                                        &s1);
+  assert(n == n1 * N * Nf);
   MALLOC(U, 2 * n);
   MALLOC(V, 2 * n);
   MALLOC(W, 2 * n);
@@ -102,36 +114,38 @@ int main(void) {
   for (i = -N / 2; i < 0; i++)
     kx[i + N] = i;
 
-  rfftn = fftw_plan_dft_r2c_3d(N, N, N, U, U_hat, FFTW_MEASURE);
-  irfftn = fftw_plan_dft_c2r_3d(N, N, N, U_hat, U, FFTW_MEASURE);
+  rfftn = fftw_mpi_plan_dft_r2c_3d(N, N, N, U, U_hat, MPI_COMM_WORLD,
+                                   FFTW_MPI_TRANSPOSED_OUT);
+  irfftn = fftw_mpi_plan_dft_c2r_3d(N, N, N, U_hat, U, MPI_COMM_WORLD,
+                                    FFTW_MPI_TRANSPOSED_IN);
 
-  for (i = 0; i < N; i++)
+  for (i = 0; i < n0; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < N; k++) {
         z = (i * N + j) * 2 * Nf + k;
-        U[z] = sin(dx * i) * cos(dx * j) * cos(dx * k);
-        V[z] = -cos(dx * i) * sin(dx * j) * cos(dx * k);
+        U[z] = sin(dx * (i + s0)) * cos(dx * j) * cos(dx * k);
+        V[z] = -cos(dx * (i + s0)) * sin(dx * j) * cos(dx * k);
         W[z] = 0.0;
       }
 
-  fftw_execute_dft_r2c(rfftn, U, U_hat);
-  fftw_execute_dft_r2c(rfftn, V, V_hat);
-  fftw_execute_dft_r2c(rfftn, W, W_hat);
+  fftw_mpi_execute_dft_r2c(rfftn, U, U_hat);
+  fftw_mpi_execute_dft_r2c(rfftn, V, V_hat);
+  fftw_mpi_execute_dft_r2c(rfftn, W, W_hat);
 
   kmax = 2. / 3. * (N / 2 + 1);
-  for (i = 0; i < N; i++)
+  for (i = 0; i < n1; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < Nf; k++) {
         z = (i * N + j) * Nf + k;
-        dealias[z] =
-            (fabs(kx[i]) < kmax) * (fabs(kx[j]) < kmax) * (fabs(kx[k]) < kmax);
+        dealias[z] = (fabs(kx[i + s1]) < kmax) * (fabs(kx[j]) < kmax) *
+                     (fabs(kx[k]) < kmax);
       }
 
-  for (i = 0; i < N; i++)
+  for (i = 0; i < n1; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < Nf; k++) {
         z = (i * N + j) * Nf + k;
-        m = kx[i] * kx[i] + kx[j] * kx[j] + kx[k] * kx[k];
+        m = kx[i + s1] * kx[i + s1] + kx[j] * kx[j] + kx[k] * kx[k];
         kk[z] = m > 0 ? m : 1;
       }
   t = 0.0;
@@ -139,7 +153,7 @@ int main(void) {
   while (t <= T) {
     t += dt;
     tstep++;
-    for (i = 0; i < N; i++)
+    for (i = 0; i < n1; i++)
       for (j = 0; j < N; j++)
         for (k = 0; k < Nf; k++) {
           z = (i * N + j) * Nf + k;
@@ -152,32 +166,32 @@ int main(void) {
         }
     for (rk = 0; rk < 4; rk++) {
       if (rk > 0) {
-        fftw_execute_dft_c2r(irfftn, U_hat, U);
-        fftw_execute_dft_c2r(irfftn, V_hat, V);
-        fftw_execute_dft_c2r(irfftn, W_hat, W);
+        fftw_mpi_execute_dft_c2r(irfftn, U_hat, U);
+        fftw_mpi_execute_dft_c2r(irfftn, V_hat, V);
+        fftw_mpi_execute_dft_c2r(irfftn, W_hat, W);
         for (k = 0; k < 2 * n; k++) {
           U[k] /= tot;
           V[k] /= tot;
           W[k] /= tot;
         }
       }
-      for (i = 0; i < N; i++)
+      for (i = 0; i < n1; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
             z = (i * N + j) * Nf + k;
-            curlZ[z] = I * (kx[i] * V_hat[z] - kx[j] * U_hat[z]);
-            curlY[z] = I * (kz[k] * U_hat[z] - kx[i] * W_hat[z]);
-            curlX[z] = I * (kx[j] * W_hat[z] - kz[k] * V_hat[z]);
+            curlZ[z] = one * (kx[i + s1] * V_hat[z] - kx[j] * U_hat[z]);
+            curlY[z] = one * (kz[k] * U_hat[z] - kx[i + s1] * W_hat[z]);
+            curlX[z] = one * (kx[j] * W_hat[z] - kz[k] * V_hat[z]);
           }
-      fftw_execute_dft_c2r(irfftn, curlX, CU);
-      fftw_execute_dft_c2r(irfftn, curlY, CV);
-      fftw_execute_dft_c2r(irfftn, curlZ, CW);
+      fftw_mpi_execute_dft_c2r(irfftn, curlX, CU);
+      fftw_mpi_execute_dft_c2r(irfftn, curlY, CV);
+      fftw_mpi_execute_dft_c2r(irfftn, curlZ, CW);
       for (k = 0; k < 2 * n; k++) {
         CU[k] /= tot;
         CV[k] /= tot;
         CW[k] /= tot;
       }
-      for (i = 0; i < N; i++)
+      for (i = 0; i < n0; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < N; k++) {
             z = (i * N + j) * 2 * Nf + k;
@@ -185,11 +199,11 @@ int main(void) {
             V_tmp[z] = W[z] * CU[z] - U[z] * CW[z];
             W_tmp[z] = U[z] * CV[z] - V[z] * CU[z];
           }
-      fftw_execute_dft_r2c(rfftn, U_tmp, dU);
-      fftw_execute_dft_r2c(rfftn, V_tmp, dV);
-      fftw_execute_dft_r2c(rfftn, W_tmp, dW);
+      fftw_mpi_execute_dft_r2c(rfftn, U_tmp, dU);
+      fftw_mpi_execute_dft_r2c(rfftn, V_tmp, dV);
+      fftw_mpi_execute_dft_r2c(rfftn, W_tmp, dW);
 
-      for (i = 0; i < N; i++)
+      for (i = 0; i < n1; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
             z = (i * N + j) * Nf + k;
@@ -197,18 +211,19 @@ int main(void) {
             dV[z] *= dealias[z] * dt;
             dW[z] *= dealias[z] * dt;
           }
-      for (i = 0; i < N; i++)
+      for (i = 0; i < n1; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
             z = (i * N + j) * Nf + k;
-            P_hat[z] = (dU[z] * kx[i] + dV[z] * kx[j] + dW[z] * kz[k]) / kk[z];
-            dU[z] -= P_hat[z] * kx[i] + nu * dt * kk[z] * U_hat[z];
+            P_hat[z] =
+                (dU[z] * kx[i + s1] + dV[z] * kx[j] + dW[z] * kz[k]) / kk[z];
+            dU[z] -= P_hat[z] * kx[i + s1] + nu * dt * kk[z] * U_hat[z];
             dV[z] -= P_hat[z] * kx[j] + nu * dt * kk[z] * V_hat[z];
             dW[z] -= P_hat[z] * kz[k] + nu * dt * kk[z] * W_hat[z];
           }
 
       if (rk < 3) {
-        for (i = 0; i < N; i++)
+        for (i = 0; i < n1; i++)
           for (j = 0; j < N; j++)
             for (k = 0; k < Nf; k++) {
               z = (i * N + j) * Nf + k;
@@ -217,7 +232,7 @@ int main(void) {
               W_hat[z] = W_hat0[z] + b[rk] * dW[z];
             }
       }
-      for (i = 0; i < N; i++)
+      for (i = 0; i < n1; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
             z = (i * N + j) * Nf + k;
@@ -226,7 +241,7 @@ int main(void) {
             W_hat1[z] += a[rk] * dW[z];
           }
     }
-    for (i = 0; i < N; i++)
+    for (i = 0; i < n1; i++)
       for (j = 0; j < N; j++)
         for (k = 0; k < Nf; k++) {
           z = (i * N + j) * Nf + k;
@@ -237,14 +252,16 @@ int main(void) {
 
     if (tstep % 2 == 0) {
       s_in = 0.0;
-      for (i = 0; i < N; i++)
+      for (i = 0; i < n0; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < N; k++) {
             z = (i * N + j) * 2 * Nf + k;
             s_in += U[z] * U[z] + V[z] * V[z] + W[z] * W[z];
           }
       s_in *= 0.5 * dx * dx * dx / L / L / L;
-      fprintf(stderr, "k = %.16e\n", s_in);
+      MPI_Reduce(&s_in, &s_out, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+      if (rank == 0)
+        fprintf(stderr, "k = %.16e\n", s_out);
     }
   }
   free(U);
@@ -276,5 +293,6 @@ int main(void) {
   free(curlZ);
   fftw_destroy_plan(irfftn);
   fftw_destroy_plan(rfftn);
-  fftw_cleanup();
+  fftw_mpi_cleanup();
+  MPI_Finalize();
 }
