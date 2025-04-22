@@ -68,7 +68,6 @@ int main(int argc, char **argv) {
   L = 2 * pi;
   dx = L / N;
   MPI_Init(&argc, &argv);
-  fftw_mpi_init();
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   MALLOC(U, 2 * N * N * Nf);
   MALLOC(V, 2 * N * N * Nf);
