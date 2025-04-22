@@ -1,8 +1,8 @@
 #define _GNU_SOURCE
-#include <fenv.h>
 #include <assert.h>
 #include <complex.h>
-#include <fftw3-mpi.h>
+#include <fenv.h>
+#include <fftw3.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,23 +14,20 @@ enum { N = 1 << 5, Nf = N / 2 + 1, tot = N * N * N };
     exit(1);                                                                   \
   }
 
-#define Z0 z = (i * N + j) * Nf + k
 static void forward(double *U, fftw_complex *U_hat) {
   fftw_plan plan;
-  plan =
-      fftw_plan_dft_r2c_3d(N, N, N, U, U_hat, FFTW_MEASURE);
+  plan = fftw_plan_dft_r2c_3d(N, N, N, U, U_hat, FFTW_ESTIMATE);
   fftw_execute_dft_r2c(plan, U, U_hat);
   fftw_destroy_plan(plan);
 }
 static void backward(fftw_complex *U_hat, double *U) {
   fftw_plan plan;
-  plan =
-      fftw_mpi_plan_dft_c2r_3d(N, N, N, U_hat, U, MPI_COMM_WORLD, FFTW_MEASURE);
-  fftw_mpi_execute_dft_c2r(plan, U_hat, U);
+  plan = fftw_plan_dft_c2r_3d(N, N, N, U_hat, U, FFTW_ESTIMATE);
+  fftw_execute_dft_c2r(plan, U_hat, U);
   fftw_destroy_plan(plan);
 }
 
-int main(int argc, char **argv) {
+int main(void) {
   double dx, L, s;
   fftw_complex *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
       *U_hat1, *V_hat, *V_hat0, *V_hat1, *W_hat, *W_hat0, *W_hat1;
@@ -60,7 +57,6 @@ int main(int argc, char **argv) {
   dt = 0.01;
   L = 2 * pi;
   dx = L / N;
-  MPI_Init(&argc, &argv);
   U = fftw_alloc_real(2 * N * N * Nf);
   V = fftw_alloc_real(2 * N * N * Nf);
   W = fftw_alloc_real(2 * N * N * Nf);
@@ -105,7 +101,7 @@ int main(int argc, char **argv) {
   for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < N; k++) {
-	z = (i * N + j) * N + k;
+        z = (i * N + j) * N + k;
         U[z] = sin(dx * i) * cos(dx * j) * cos(dx * k);
         V[z] = -cos(dx * i) * sin(dx * j) * cos(dx * k);
         W[z] = 0.0;
@@ -119,7 +115,7 @@ int main(int argc, char **argv) {
   for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < Nf; k++) {
-        Z0;
+        z = (i * N + j) * Nf + k;
         dealias[z] = (fabs(kx[i]) < kmax) && (fabs(kx[j]) < kmax) &&
                      (fabs(kz[k]) < kmax);
       }
@@ -127,7 +123,7 @@ int main(int argc, char **argv) {
   for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < Nf; k++) {
-        Z0;
+        z = (i * N + j) * Nf + k;
         m = kx[i] * kx[i] + kx[j] * kx[j] + kz[k] * kz[k];
         kk[z] = m > 0 ? m : 1;
       }
@@ -163,7 +159,7 @@ int main(int argc, char **argv) {
       for (i = 0; i < N; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
-            Z0;
+            z = (i * N + j) * Nf + k;
             curlZ[z] = I * (kx[i] * V_hat[z] - kx[j] * U_hat[z]);
             curlY[z] = I * (kz[k] * U_hat[z] - kx[i] * W_hat[z]);
             curlX[z] = I * (kx[j] * W_hat[z] - kz[k] * V_hat[z]);
@@ -193,7 +189,7 @@ int main(int argc, char **argv) {
       for (i = 0; i < N; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
-            Z0;
+            z = (i * N + j) * Nf + k;
             P_hat[z] = (dU[z] * kx[i] + dV[z] * kx[j] + dW[z] * kz[k]) / kk[z];
             dU[z] -= P_hat[z] * kx[i] + nu * dt * kk[z] * U_hat[z];
             dV[z] -= P_hat[z] * kx[j] + nu * dt * kk[z] * V_hat[z];
