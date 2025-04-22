@@ -266,6 +266,4 @@ int main(int argc, char **argv) {
   free(curlX);
   free(curlY);
   free(curlZ);
-  fftw_mpi_cleanup();
-  MPI_Finalize();
 }
