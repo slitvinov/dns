@@ -61,7 +61,6 @@ int main(int argc, char **argv) {
   double *V_tmp;
   double *W;
   double *W_tmp;
-  ptrdiff_t n;
 
   nu = 0.000625;
   T = 0.1;
@@ -71,34 +70,33 @@ int main(int argc, char **argv) {
   MPI_Init(&argc, &argv);
   fftw_mpi_init();
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  n = N * N * Nf;
-  MALLOC(U, 2 * n);
-  MALLOC(V, 2 * n);
-  MALLOC(W, 2 * n);
-  MALLOC(U_tmp, 2 * n);
-  MALLOC(V_tmp, 2 * n);
-  MALLOC(W_tmp, 2 * n);
-  MALLOC(CU, 2 * n);
-  MALLOC(CV, 2 * n);
-  MALLOC(CW, 2 * n);
-  MALLOC(dealias, 2 * n);
-  MALLOC(kk, 2 * n);
-  MALLOC(U_hat, n);
-  MALLOC(V_hat, n);
-  MALLOC(W_hat, n);
-  MALLOC(P_hat, n);
-  MALLOC(U_hat0, n);
-  MALLOC(V_hat0, n);
-  MALLOC(W_hat0, n);
-  MALLOC(U_hat1, n);
-  MALLOC(V_hat1, n);
-  MALLOC(W_hat1, n);
-  MALLOC(dU, n);
-  MALLOC(dV, n);
-  MALLOC(dW, n);
-  MALLOC(curlX, n);
-  MALLOC(curlY, n);
-  MALLOC(curlZ, n);
+  MALLOC(U, 2 * N * N * Nf);
+  MALLOC(V, 2 * N * N * Nf);
+  MALLOC(W, 2 * N * N * Nf);
+  MALLOC(U_tmp, 2 * N * N * Nf);
+  MALLOC(V_tmp, 2 * N * N * Nf);
+  MALLOC(W_tmp, 2 * N * N * Nf);
+  MALLOC(CU, 2 * N * N * Nf);
+  MALLOC(CV, 2 * N * N * Nf);
+  MALLOC(CW, 2 * N * N * Nf);
+  MALLOC(dealias, 2 * N * N * Nf);
+  MALLOC(kk, 2 * N * N * Nf);
+  MALLOC(U_hat, N * N * Nf);
+  MALLOC(V_hat, N * N * Nf);
+  MALLOC(W_hat, N * N * Nf);
+  MALLOC(P_hat, N * N * Nf);
+  MALLOC(U_hat0, N * N * Nf);
+  MALLOC(V_hat0, N * N * Nf);
+  MALLOC(W_hat0, N * N * Nf);
+  MALLOC(U_hat1, N * N * Nf);
+  MALLOC(V_hat1, N * N * Nf);
+  MALLOC(W_hat1, N * N * Nf);
+  MALLOC(dU, N * N * Nf);
+  MALLOC(dV, N * N * Nf);
+  MALLOC(dW, N * N * Nf);
+  MALLOC(curlX, N * N * Nf);
+  MALLOC(curlY, N * N * Nf);
+  MALLOC(curlZ, N * N * Nf);
   for (i = 0; i < N / 2; i++) {
     kx[i] = i;
     kz[i] = i;
@@ -162,7 +160,7 @@ int main(int argc, char **argv) {
         fftw_mpi_execute_dft_c2r(irfftn, U_hat, U);
         fftw_mpi_execute_dft_c2r(irfftn, V_hat, V);
         fftw_mpi_execute_dft_c2r(irfftn, W_hat, W);
-        for (k = 0; k < 2 * n; k++) {
+        for (k = 0; k < 2 * N * N * Nf; k++) {
           U[k] /= tot;
           V[k] /= tot;
           W[k] /= tot;
@@ -179,7 +177,7 @@ int main(int argc, char **argv) {
       fftw_mpi_execute_dft_c2r(irfftn, curlX, CU);
       fftw_mpi_execute_dft_c2r(irfftn, curlY, CV);
       fftw_mpi_execute_dft_c2r(irfftn, curlZ, CW);
-      for (k = 0; k < 2 * n; k++) {
+      for (k = 0; k < 2 * N * N * Nf; k++) {
         CU[k] /= tot;
         CV[k] /= tot;
         CW[k] /= tot;
