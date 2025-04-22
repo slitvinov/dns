@@ -8,15 +8,10 @@
 #include <string.h>
 
 enum { N = 1 << 5, Nf = N / 2 + 1, tot = N * N * N };
-#define MALLOC(var, nelem)                                                     \
-  if ((var = fftw_malloc((nelem) * sizeof *var)) == NULL) {                    \
-    fprintf(stderr, "%s:%d: fftwf_malloc failed\n", __FILE__, __LINE__);       \
-    exit(1);                                                                   \
-  }
-
 static void forward(double *U, fftw_complex *U_hat) {
   fftw_plan plan;
-  plan = fftw_plan_dft_r2c_3d(N, N, N, U, U_hat, FFTW_ESTIMATE);
+  plan = fftw_plan_dft_r2c_3d(N, N, N, U, U_hat,
+                              FFTW_ESTIMATE | FFTW_PRESERVE_INPUT);
   fftw_execute_dft_r2c(plan, U, U_hat);
   fftw_destroy_plan(plan);
 }
@@ -71,22 +66,22 @@ int main(void) {
   kk = malloc(N * N * Nf * sizeof(double));
 
   dealias = malloc(N * N * Nf * sizeof(int));
-  MALLOC(U_hat, N * N * Nf);
-  MALLOC(V_hat, N * N * Nf);
-  MALLOC(W_hat, N * N * Nf);
-  MALLOC(P_hat, N * N * Nf);
-  MALLOC(U_hat0, N * N * Nf);
-  MALLOC(V_hat0, N * N * Nf);
-  MALLOC(W_hat0, N * N * Nf);
-  MALLOC(U_hat1, N * N * Nf);
-  MALLOC(V_hat1, N * N * Nf);
-  MALLOC(W_hat1, N * N * Nf);
-  MALLOC(dU, N * N * Nf);
-  MALLOC(dV, N * N * Nf);
-  MALLOC(dW, N * N * Nf);
-  MALLOC(curlX, N * N * Nf);
-  MALLOC(curlY, N * N * Nf);
-  MALLOC(curlZ, N * N * Nf);
+  U_hat = fftw_alloc_complex(N * N * Nf);
+  V_hat = fftw_alloc_complex(N * N * Nf);
+  W_hat = fftw_alloc_complex(N * N * Nf);
+  P_hat = fftw_alloc_complex(N * N * Nf);
+  U_hat0 = fftw_alloc_complex(N * N * Nf);
+  V_hat0 = fftw_alloc_complex(N * N * Nf);
+  W_hat0 = fftw_alloc_complex(N * N * Nf);
+  U_hat1 = fftw_alloc_complex(N * N * Nf);
+  V_hat1 = fftw_alloc_complex(N * N * Nf);
+  W_hat1 = fftw_alloc_complex(N * N * Nf);
+  dU = fftw_alloc_complex(N * N * Nf);
+  dV = fftw_alloc_complex(N * N * Nf);
+  dW = fftw_alloc_complex(N * N * Nf);
+  curlX = fftw_alloc_complex(N * N * Nf);
+  curlY = fftw_alloc_complex(N * N * Nf);
+  curlZ = fftw_alloc_complex(N * N * Nf);
   for (i = 0; i < N / 2; i++) {
     kx[i] = i;
     kz[i] = i;
@@ -94,20 +89,6 @@ int main(void) {
   kz[N / 2] = N / 2;
   for (i = -N / 2; i < 0; i++)
     kx[i + N] = i;
-  l = 0;
-  for (i = 0; i < N; i++)
-    for (j = 0; j < N; j++)
-      for (k = 0; k < N; k++) {
-        U[l] = sin(dx * i) * cos(dx * j) * cos(dx * k);
-        V[l] = -cos(dx * i) * sin(dx * j) * cos(dx * k);
-        W[l] = 0.0;
-	l++;
-      }
-
-  forward(U, U_hat);
-  forward(V, V_hat);
-  forward(W, W_hat);
-
   kmax = 2. / 3. * (N / 2 + 1);
   l = 0;
   for (i = 0; i < N; i++)
@@ -115,7 +96,7 @@ int main(void) {
       for (k = 0; k < Nf; k++) {
         dealias[l] = (fabs(kx[i]) < kmax) && (fabs(kx[j]) < kmax) &&
                      (fabs(kz[k]) < kmax);
-	l++;
+        l++;
       }
 
   l = 0;
@@ -124,8 +105,23 @@ int main(void) {
       for (k = 0; k < Nf; k++) {
         m = kx[i] * kx[i] + kx[j] * kx[j] + kz[k] * kz[k];
         kk[l] = m > 0 ? m : 1;
-	l++;
+        l++;
       }
+
+  l = 0;
+  for (i = 0; i < N; i++)
+    for (j = 0; j < N; j++)
+      for (k = 0; k < N; k++) {
+        U[l] = sin(dx * i) * cos(dx * j) * cos(dx * k);
+        V[l] = -cos(dx * i) * sin(dx * j) * cos(dx * k);
+        W[l] = 0.0;
+        l++;
+      }
+
+  forward(U, U_hat);
+  forward(V, V_hat);
+  forward(W, W_hat);
+
   t = 0.0;
   tstep = 0;
   while (t <= T) {
@@ -162,7 +158,7 @@ int main(void) {
             curlZ[l] = I * (kx[i] * V_hat[l] - kx[j] * U_hat[l]);
             curlY[l] = I * (kz[k] * U_hat[l] - kx[i] * W_hat[l]);
             curlX[l] = I * (kx[j] * W_hat[l] - kz[k] * V_hat[l]);
-	    l++;
+            l++;
           }
       backward(curlX, CU);
       backward(curlY, CV);
@@ -194,7 +190,7 @@ int main(void) {
             dU[l] -= P_hat[l] * kx[i] + nu * dt * kk[l] * U_hat[l];
             dV[l] -= P_hat[l] * kx[j] + nu * dt * kk[l] * V_hat[l];
             dW[l] -= P_hat[l] * kz[k] + nu * dt * kk[l] * W_hat[l];
-	    l++;
+            l++;
           }
 
       if (rk < 3) {
