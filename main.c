@@ -155,6 +155,13 @@ int main(int argc, char **argv) {
   t = 0.0;
   tstep = 0;
   while (t <= T) {
+    if (tstep % 2 == 0) {
+      s = 0.0;
+      for (k = 0; k < N * N * 2 * Nf; k++)
+	s += U[k] * U[k] + V[k] * V[k] + W[k] * W[k];
+      s *= 0.5 * dx * dx * dx / L / L / L;
+      fprintf(stderr, "k = %.16e\n", s);
+    }
     t += dt;
     tstep++;
     memcpy(U_hat0, U_hat, sizeof(fftw_complex) * N * N * Nf);
@@ -230,14 +237,6 @@ int main(int argc, char **argv) {
     memcpy(U_hat, U_hat1, sizeof(fftw_complex) * N * N * Nf);
     memcpy(V_hat, V_hat1, sizeof(fftw_complex) * N * N * Nf);
     memcpy(W_hat, W_hat1, sizeof(fftw_complex) * N * N * Nf);
-
-    if (tstep % 2 == 0) {
-      s = 0.0;
-      for (k = 0; k < N * N * 2 * Nf; k++)
-	s += U[k] * U[k] + V[k] * V[k] + W[k] * W[k];
-      s *= 0.5 * dx * dx * dx / L / L / L;
-      fprintf(stderr, "k = %.16e\n", s);
-    }
   }
   free(U);
   free(V);
