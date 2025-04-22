@@ -144,7 +144,7 @@ int main(int argc, char **argv) {
     for (j = 0; j < N; j++)
       for (k = 0; k < Nf; k++) {
         Z0;
-        m = kx[i] * kx[i] + kx[j] * kx[j] + kx[k] * kx[k];
+        m = kx[i] * kx[i] + kx[j] * kx[j] + kz[k] * kz[k];
         kk[z] = m > 0 ? m : 1;
       }
   t = 0.0;
