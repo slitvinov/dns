@@ -137,8 +137,7 @@ int main(int argc, char **argv) {
     for (j = 0; j < N; j++)
       for (k = 0; k < Nf; k++) {
         Z0;
-        dealias[z] =
-            (fabs(kx[i]) < kmax) * (fabs(kx[j]) < kmax) * (fabs(kx[k]) < kmax);
+	dealias[z] = (fabs(kx[i]) < kmax) && (fabs(kx[j]) < kmax) && (fabs(kz[k]) < kmax);
       }
 
   for (i = 0; i < N; i++)
