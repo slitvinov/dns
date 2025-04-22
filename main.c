@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+#include <fenv.h>
 #include <assert.h>
 #include <complex.h>
 #include <fftw3-mpi.h>
@@ -51,6 +53,8 @@ int main(int argc, char **argv) {
   double *W_tmp;
   double pi = 3.141592653589793238;
 
+  feclearexcept(FE_ALL_EXCEPT);
+  feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
   nu = 0.000625;
   T = 0.1;
   dt = 0.01;
@@ -132,7 +136,7 @@ int main(int argc, char **argv) {
   while (t <= T) {
     if (tstep % 2 == 0) {
       s = 0.0;
-      for (k = 0; k < N * N * 2 * Nf; k++)
+      for (k = 0; k < N * N * N; k++)
         s += U[k] * U[k] + V[k] * V[k] + W[k] * W[k];
       s *= 0.5 * dx * dx * dx / L / L / L;
       fprintf(stderr, "k = %.16e\n", s);
@@ -150,7 +154,7 @@ int main(int argc, char **argv) {
         backward(U_hat, U);
         backward(V_hat, V);
         backward(W_hat, W);
-        for (k = 0; k < 2 * N * N * Nf; k++) {
+        for (k = 0; k < N * N * N; k++) {
           U[k] /= tot;
           V[k] /= tot;
           W[k] /= tot;
@@ -167,12 +171,12 @@ int main(int argc, char **argv) {
       backward(curlX, CU);
       backward(curlY, CV);
       backward(curlZ, CW);
-      for (k = 0; k < 2 * N * N * Nf; k++) {
+      for (k = 0; k < N * N * N; k++) {
         CU[k] /= tot;
         CV[k] /= tot;
         CW[k] /= tot;
       }
-      for (k = 0; k < 2 * N * N * Nf; k++) {
+      for (k = 0; k < N * N * N; k++) {
         U_tmp[k] = V[k] * CW[k] - W[k] * CV[k];
         V_tmp[k] = W[k] * CU[k] - U[k] * CW[k];
         W_tmp[k] = U[k] * CV[k] - V[k] * CU[k];
