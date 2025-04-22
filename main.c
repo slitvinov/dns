@@ -196,14 +196,11 @@ int main(int argc, char **argv) {
       forward(V_tmp, dV);
       forward(W_tmp, dW);
 
-      for (i = 0; i < N; i++)
-        for (j = 0; j < N; j++)
-          for (k = 0; k < Nf; k++) {
-            z = (i * N + j) * Nf + k;
-            dU[z] *= dealias[z] * dt;
-            dV[z] *= dealias[z] * dt;
-            dW[z] *= dealias[z] * dt;
-          }
+      for (k = 0; k < N * N * Nf; k++) {
+        dU[k] *= dealias[k] * dt;
+        dV[k] *= dealias[k] * dt;
+        dW[k] *= dealias[k] * dt;
+      }
       for (i = 0; i < N; i++)
         for (j = 0; j < N; j++)
           for (k = 0; k < Nf; k++) {
