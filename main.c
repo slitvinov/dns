@@ -187,14 +187,11 @@ int main(int argc, char **argv) {
         CV[k] /= tot;
         CW[k] /= tot;
       }
-      for (i = 0; i < N; i++)
-        for (j = 0; j < N; j++)
-          for (k = 0; k < N; k++) {
-            Z1;
-            U_tmp[z] = V[z] * CW[z] - W[z] * CV[z];
-            V_tmp[z] = W[z] * CU[z] - U[z] * CW[z];
-            W_tmp[z] = U[z] * CV[z] - V[z] * CU[z];
-          }
+      for (k = 0; k < N * N * N; k++) {
+	U_tmp[k] = V[k] * CW[k] - W[k] * CV[k];
+	V_tmp[k] = W[k] * CU[k] - U[k] * CW[k];
+	W_tmp[k] = U[k] * CV[k] - V[k] * CU[k];
+      }
       forward(U_tmp, dU);
       forward(V_tmp, dV);
       forward(W_tmp, dW);
