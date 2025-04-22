@@ -125,9 +125,9 @@ int main(int argc, char **argv) {
         W[z] = 0.0;
       }
 
-  fftw_mpi_execute_dft_r2c(rfftn, U, U_hat);
-  fftw_mpi_execute_dft_r2c(rfftn, V, V_hat);
-  fftw_mpi_execute_dft_r2c(rfftn, W, W_hat);
+  forward(U, U_hat);
+  forward(V, V_hat);
+  forward(W, W_hat);
 
   kmax = 2. / 3. * (N / 2 + 1);
   for (i = 0; i < N; i++)
@@ -196,9 +196,9 @@ int main(int argc, char **argv) {
             V_tmp[z] = W[z] * CU[z] - U[z] * CW[z];
             W_tmp[z] = U[z] * CV[z] - V[z] * CU[z];
           }
-      fftw_mpi_execute_dft_r2c(rfftn, U_tmp, dU);
-      fftw_mpi_execute_dft_r2c(rfftn, V_tmp, dV);
-      fftw_mpi_execute_dft_r2c(rfftn, W_tmp, dW);
+      forward(U_tmp, dU);
+      forward(V_tmp, dV);
+      forward(W_tmp, dW);
 
       for (i = 0; i < N; i++)
         for (j = 0; j < N; j++)
