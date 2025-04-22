@@ -13,7 +13,6 @@ enum { N = 1 << 5, Nf = N / 2 + 1, tot = N * N * N };
   }
 
 #define Z0 z = (i * N + j) * Nf + k
-#define Z1 z = (i * N + j) * 2 * Nf + k
 static void forward(double *U, fftw_complex *U_hat) {
   fftw_plan plan;
   plan =
@@ -102,7 +101,7 @@ int main(int argc, char **argv) {
   for (i = 0; i < N; i++)
     for (j = 0; j < N; j++)
       for (k = 0; k < N; k++) {
-        Z1;
+	z = (i * N + j) * N + k;
         U[z] = sin(dx * i) * cos(dx * j) * cos(dx * k);
         V[z] = -cos(dx * i) * sin(dx * j) * cos(dx * k);
         W[z] = 0.0;
