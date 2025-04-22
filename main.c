@@ -112,9 +112,9 @@ int main(int argc, char **argv) {
     kx[i + N] = i;
 
   rfftn = fftw_mpi_plan_dft_r2c_3d(N, N, N, U, U_hat, MPI_COMM_WORLD,
-                                   FFTW_MPI_TRANSPOSED_OUT);
+                                   FFTW_MEASURE);
   irfftn = fftw_mpi_plan_dft_c2r_3d(N, N, N, U_hat, U, MPI_COMM_WORLD,
-                                    FFTW_MPI_TRANSPOSED_IN);
+                                    FFTW_MEASURE);
   /*
   rfftn = fftw_plan_dft_r2c_3d(N, N, N, U, U_hat, FFTW_MEASURE);
   irfftn = fftw_plan_dft_c2r_3d(N, N, N, U_hat, U, FFTW_MEASURE);
