@@ -212,20 +212,17 @@ int main(int argc, char **argv) {
           }
 
       if (rk < 3) {
-	for (int k = 0; k < N * N * Nf; ++k) {
+	for (k = 0; k < N * N * Nf; k++) {
 	  U_hat[k] = U_hat0[k] + b[rk] * dU[k];
 	  V_hat[k] = V_hat0[k] + b[rk] * dV[k];
 	  W_hat[k] = W_hat0[k] + b[rk] * dW[k];
 	}
       }
-      for (i = 0; i < N; i++)
-        for (j = 0; j < N; j++)
-          for (k = 0; k < Nf; k++) {
-            z = (i * N + j) * Nf + k;
-            U_hat1[z] += a[rk] * dU[z];
-            V_hat1[z] += a[rk] * dV[z];
-            W_hat1[z] += a[rk] * dW[z];
-          }
+      for (k = 0; k < N * N * Nf; ++k) {
+	U_hat1[k] += a[rk] * dU[k];
+	V_hat1[k] += a[rk] * dV[k];
+	W_hat1[k] += a[rk] * dW[k];
+      }
     }
     memcpy(U_hat, U_hat1, sizeof(fftw_complex) * N * N * Nf);
     memcpy(V_hat, V_hat1, sizeof(fftw_complex) * N * N * Nf);
