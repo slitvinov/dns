@@ -12,7 +12,6 @@ enum { N = 1 << 5, Nf = N / 2 + 1, tot = N * N * N };
   }
 
 int main(int argc, char **argv) {
-  char err_buffer[MPI_MAX_ERROR_STRING];
   double dx;
   double L;
   double s_in;
@@ -38,12 +37,10 @@ int main(int argc, char **argv) {
   fftw_plan rfftn;
   int *dealias;
   int i;
-  int ierr;
   int j;
   int k;
   int m;
   int rank;
-  int resultlen;
   int rk;
   int tstep;
   int z;

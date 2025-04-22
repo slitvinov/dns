@@ -1,6 +1,5 @@
 #include <assert.h>
 #include <complex.h>
-#include <fftw3-mpi.h>
 #include <math.h>
 #include <stdlib.h>
 
@@ -76,12 +75,11 @@ int main(int argc, char **argv) {
   dt = 0.01;
   L = 2 * pi;
   dx = L / N;
-  MPI_Init(&argc, &argv);
-  fftw_mpi_init();
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   n = fftw_mpi_local_size_3d_transposed(N, N, Nf, MPI_COMM_WORLD, &n0, &s0, &n1,
                                         &s1);
   assert(n == n1 * N * Nf);
+  fprintf(stderr, "n0, N: %ld %d\n", n0, N);
   MALLOC(U, 2 * n);
   MALLOC(V, 2 * n);
   MALLOC(W, 2 * n);
