@@ -86,32 +86,25 @@ int main(void) {
   for (i = -N / 2; i < 0; i++)
     kx[i + N] = i;
   kmax = 2. / 3. * (N / 2 + 1);
-  l = 0;
-  for (i = 0; i < N; i++)
+  for (i = l = 00; i < N; i++)
     for (j = 0; j < N; j++)
-      for (k = 0; k < Nf; k++) {
+      for (k = 0; k < Nf; k++, l++)
         dealias[l] = (fabs(kx[i]) < kmax) && (fabs(kx[j]) < kmax) &&
                      (fabs(kz[k]) < kmax);
-        l++;
-      }
 
-  l = 0;
-  for (i = 0; i < N; i++)
+  for (i = l = 0; i < N; i++)
     for (j = 0; j < N; j++)
-      for (k = 0; k < Nf; k++) {
+      for (k = 0; k < Nf; k++, l++) {
         m = kx[i] * kx[i] + kx[j] * kx[j] + kz[k] * kz[k];
         kk[l] = m > 0 ? m : 1;
-        l++;
       }
 
-  l = 0;
-  for (i = 0; i < N; i++)
+  for (i = l = 0; i < N; i++)
     for (j = 0; j < N; j++)
-      for (k = 0; k < N; k++) {
+      for (k = 0; k < N; k++, l++) {
         U[l] = sin(dx * i) * cos(dx * j) * cos(dx * k);
         V[l] = -cos(dx * i) * sin(dx * j) * cos(dx * k);
         W[l] = 0.0;
-        l++;
       }
 
   fftw_execute_dft_r2c(fplan, U, U_hat);
@@ -207,14 +200,12 @@ int main(void) {
           W[k] *= invN3;
         }
       }
-      l = 0;
-      for (i = 0; i < N; i++)
+      for (i = l = 0; i < N; i++)
         for (j = 0; j < N; j++)
-          for (k = 0; k < Nf; k++) {
+          for (k = 0; k < Nf; k++, l++) {
             curlZ[l] = I * (kx[i] * V_hat[l] - kx[j] * U_hat[l]);
             curlY[l] = I * (kz[k] * U_hat[l] - kx[i] * W_hat[l]);
             curlX[l] = I * (kx[j] * W_hat[l] - kz[k] * V_hat[l]);
-            l++;
           }
       backward(curlX, CU, work);
       backward(curlY, CV, work);
@@ -238,15 +229,13 @@ int main(void) {
         dV[k] *= dealias[k] * dt;
         dW[k] *= dealias[k] * dt;
       }
-      l = 0;
-      for (i = 0; i < N; i++)
+      for (i = l = 0; i < N; i++)
         for (j = 0; j < N; j++)
-          for (k = 0; k < Nf; k++) {
+          for (k = 0; k < Nf; k++, l++) {
             P_hat[l] = (dU[l] * kx[i] + dV[l] * kx[j] + dW[l] * kz[k]) / kk[l];
             dU[l] -= P_hat[l] * kx[i] + nu * dt * kk[l] * U_hat[l];
             dV[l] -= P_hat[l] * kx[j] + nu * dt * kk[l] * V_hat[l];
             dW[l] -= P_hat[l] * kz[k] + nu * dt * kk[l] * W_hat[l];
-            l++;
           }
 
       if (rk < 3) {
