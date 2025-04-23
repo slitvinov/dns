@@ -37,7 +37,7 @@ int main(void) {
   dt = 0.01;
   L = 2 * pi;
   dx = L / n;
-  invn3 = 1.0 / (n3);
+  invn3 = 1.0 / n3;
   U = fftw_alloc_real(n3);
   V = fftw_alloc_real(n3);
   W = fftw_alloc_real(n3);
