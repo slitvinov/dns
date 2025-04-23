@@ -7,10 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { n = 32, nf = n / 2 + 1 };
+enum { n = 32, nf = n / 2 + 1, n3 = n * n * n, n3f = n * n * nf};
 static void backward(fftw_complex *U_hat, double *U, fftw_complex *work) {
   fftw_plan plan;
-  memcpy(work, U_hat, n * n * nf * sizeof(fftw_complex));
+  memcpy(work, U_hat, n3f * sizeof(fftw_complex));
   plan = fftw_plan_dft_c2r_3d(n, n, n, work, U, FFTW_ESTIMATE);
   fftw_execute_dft_c2r(plan, work, U);
   fftw_destroy_plan(plan);
@@ -37,37 +37,37 @@ int main(void) {
   dt = 0.01;
   L = 2 * pi;
   dx = L / n;
-  invn3 = 1.0 / (n * n * n);
-  U = fftw_alloc_real(n * n * n);
-  V = fftw_alloc_real(n * n * n);
-  W = fftw_alloc_real(n * n * n);
-  U_tmp = fftw_alloc_real(n * n * n);
-  V_tmp = fftw_alloc_real(n * n * n);
-  W_tmp = fftw_alloc_real(n * n * n);
-  CU = fftw_alloc_real(n * n * n);
-  CV = fftw_alloc_real(n * n * n);
-  CW = fftw_alloc_real(n * n * n);
+  invn3 = 1.0 / (n3);
+  U = fftw_alloc_real(n3);
+  V = fftw_alloc_real(n3);
+  W = fftw_alloc_real(n3);
+  U_tmp = fftw_alloc_real(n3);
+  V_tmp = fftw_alloc_real(n3);
+  W_tmp = fftw_alloc_real(n3);
+  CU = fftw_alloc_real(n3);
+  CV = fftw_alloc_real(n3);
+  CW = fftw_alloc_real(n3);
   kx = malloc(n * sizeof(double));
   kz = malloc(nf * sizeof(double));
-  kk = malloc(n * n * nf * sizeof(double));
-  dealias = malloc(n * n * nf * sizeof(int));
-  U_hat = fftw_alloc_complex(n * n * nf);
-  V_hat = fftw_alloc_complex(n * n * nf);
-  W_hat = fftw_alloc_complex(n * n * nf);
-  P_hat = fftw_alloc_complex(n * n * nf);
-  U_hat0 = fftw_alloc_complex(n * n * nf);
-  V_hat0 = fftw_alloc_complex(n * n * nf);
-  W_hat0 = fftw_alloc_complex(n * n * nf);
-  U_hat1 = fftw_alloc_complex(n * n * nf);
-  V_hat1 = fftw_alloc_complex(n * n * nf);
-  W_hat1 = fftw_alloc_complex(n * n * nf);
-  dU = fftw_alloc_complex(n * n * nf);
-  dV = fftw_alloc_complex(n * n * nf);
-  dW = fftw_alloc_complex(n * n * nf);
-  curlX = fftw_alloc_complex(n * n * nf);
-  curlY = fftw_alloc_complex(n * n * nf);
-  curlZ = fftw_alloc_complex(n * n * nf);
-  work = fftw_alloc_complex(n * n * nf);
+  kk = malloc(n3f * sizeof(double));
+  dealias = malloc(n3f * sizeof(int));
+  U_hat = fftw_alloc_complex(n3f);
+  V_hat = fftw_alloc_complex(n3f);
+  W_hat = fftw_alloc_complex(n3f);
+  P_hat = fftw_alloc_complex(n3f);
+  U_hat0 = fftw_alloc_complex(n3f);
+  V_hat0 = fftw_alloc_complex(n3f);
+  W_hat0 = fftw_alloc_complex(n3f);
+  U_hat1 = fftw_alloc_complex(n3f);
+  V_hat1 = fftw_alloc_complex(n3f);
+  W_hat1 = fftw_alloc_complex(n3f);
+  dU = fftw_alloc_complex(n3f);
+  dV = fftw_alloc_complex(n3f);
+  dW = fftw_alloc_complex(n3f);
+  curlX = fftw_alloc_complex(n3f);
+  curlY = fftw_alloc_complex(n3f);
+  curlZ = fftw_alloc_complex(n3f);
+  work = fftw_alloc_complex(n3f);
   struct {
     double *var;
     const char *name;
@@ -116,14 +116,14 @@ int main(void) {
     backward(V_hat, V, work);
     backward(W_hat, W, work);
 
-    for (k = 0; k < n * n * n; k++) {
+    for (k = 0; k < n3; k++) {
       U[k] *= invn3;
       V[k] *= invn3;
       W[k] *= invn3;
     }
     if (tstep % 2 == 0) {
       s = 0.0;
-      for (k = 0; k < n * n * n; k++)
+      for (k = 0; k < n3; k++)
         s += U[k] * U[k] + V[k] * V[k] + W[k] * W[k];
       s *= 0.5 * dx * dx * dx / L / L / L;
       fprintf(stderr, "eng = %.16Le\n", s);
@@ -132,7 +132,7 @@ int main(void) {
       sprintf(path, "%08d.raw", tstep);
       file = fopen(path, "w");
       for (idump = 0; idump < sizeof list / sizeof *list; idump++)
-        fwrite(list[idump].var, n * n * n, sizeof(double), file);
+        fwrite(list[idump].var, n3, sizeof(double), file);
       fclose(file);
       sprintf(path, "a.%08d.xdmf2", tstep);
       file = fopen(path, "w");
@@ -174,25 +174,25 @@ int main(void) {
                 "        </DataItem>\n"
                 "      </Attribute>\n",
                 list[idump].name, offset, n, n, n, tstep);
-        offset += n * n * n * sizeof(double);
+        offset += n3 * sizeof(double);
       }
       fprintf(file, "    </Grid>\n"
                     "  </Domain>\n"
                     "</Xdmf>\n");
       fclose(file);
     }
-    memcpy(U_hat0, U_hat, sizeof(fftw_complex) * n * n * nf);
-    memcpy(V_hat0, V_hat, sizeof(fftw_complex) * n * n * nf);
-    memcpy(W_hat0, W_hat, sizeof(fftw_complex) * n * n * nf);
-    memcpy(U_hat1, U_hat, sizeof(fftw_complex) * n * n * nf);
-    memcpy(V_hat1, V_hat, sizeof(fftw_complex) * n * n * nf);
-    memcpy(W_hat1, W_hat, sizeof(fftw_complex) * n * n * nf);
+    memcpy(U_hat0, U_hat, sizeof(fftw_complex) * n3f);
+    memcpy(V_hat0, V_hat, sizeof(fftw_complex) * n3f);
+    memcpy(W_hat0, W_hat, sizeof(fftw_complex) * n3f);
+    memcpy(U_hat1, U_hat, sizeof(fftw_complex) * n3f);
+    memcpy(V_hat1, V_hat, sizeof(fftw_complex) * n3f);
+    memcpy(W_hat1, W_hat, sizeof(fftw_complex) * n3f);
     for (rk = 0; rk < 4; rk++) {
       if (rk > 0) {
         backward(U_hat, U, work);
         backward(V_hat, V, work);
         backward(W_hat, W, work);
-        for (k = 0; k < n * n * n; k++) {
+        for (k = 0; k < n3; k++) {
           U[k] *= invn3;
           V[k] *= invn3;
           W[k] *= invn3;
@@ -208,12 +208,12 @@ int main(void) {
       backward(curlX, CU, work);
       backward(curlY, CV, work);
       backward(curlZ, CW, work);
-      for (k = 0; k < n * n * n; k++) {
+      for (k = 0; k < n3; k++) {
         CU[k] *= invn3;
         CV[k] *= invn3;
         CW[k] *= invn3;
       }
-      for (k = 0; k < n * n * n; k++) {
+      for (k = 0; k < n3; k++) {
         U_tmp[k] = V[k] * CW[k] - W[k] * CV[k];
         V_tmp[k] = W[k] * CU[k] - U[k] * CW[k];
         W_tmp[k] = U[k] * CV[k] - V[k] * CU[k];
@@ -222,7 +222,7 @@ int main(void) {
       fftw_execute_dft_r2c(fplan, V_tmp, dV);
       fftw_execute_dft_r2c(fplan, W_tmp, dW);
 
-      for (k = 0; k < n * n * nf; k++) {
+      for (k = 0; k < n3f; k++) {
         dU[k] *= dealias[k] * dt;
         dV[k] *= dealias[k] * dt;
         dW[k] *= dealias[k] * dt;
@@ -237,21 +237,21 @@ int main(void) {
           }
 
       if (rk < 3) {
-        for (k = 0; k < n * n * nf; k++) {
+        for (k = 0; k < n3f; k++) {
           U_hat[k] = U_hat0[k] + b[rk] * dU[k];
           V_hat[k] = V_hat0[k] + b[rk] * dV[k];
           W_hat[k] = W_hat0[k] + b[rk] * dW[k];
         }
       }
-      for (k = 0; k < n * n * nf; ++k) {
+      for (k = 0; k < n3f; ++k) {
         U_hat1[k] += a[rk] * dU[k];
         V_hat1[k] += a[rk] * dV[k];
         W_hat1[k] += a[rk] * dW[k];
       }
     }
-    memcpy(U_hat, U_hat1, sizeof(fftw_complex) * n * n * nf);
-    memcpy(V_hat, V_hat1, sizeof(fftw_complex) * n * n * nf);
-    memcpy(W_hat, W_hat1, sizeof(fftw_complex) * n * n * nf);
+    memcpy(U_hat, U_hat1, sizeof(fftw_complex) * n3f);
+    memcpy(V_hat, V_hat1, sizeof(fftw_complex) * n3f);
+    memcpy(W_hat, W_hat1, sizeof(fftw_complex) * n3f);
     t += dt;
     tstep++;
   }
