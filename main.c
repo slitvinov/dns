@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { N = 1 << 5, Nf = N / 2 + 1, tot = N * N * N };
+enum { N = 1 << 5, Nf = N / 2 + 1 };
 static void forward(double *U, fftw_complex *U_hat) {
   fftw_plan plan;
   plan = fftw_plan_dft_r2c_3d(N, N, N, U, U_hat,
@@ -24,11 +24,13 @@ static void backward(fftw_complex *U_hat, double *U, fftw_complex *work) {
 }
 
 int main(void) {
-  double dx, L, s;
+  long double s;
+  double dx, L, invN3;
   fftw_complex *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
       *U_hat1, *V_hat, *V_hat0, *V_hat1, *W_hat, *W_hat0, *W_hat1, *work;
   int *dealias;
   long i, j, k, l, m, offset;
+  size_t idump;
   int rk;
   int tstep;
   double a[] = {1 / 6.0, 1 / 3.0, 1 / 3.0, 1 / 6.0};
@@ -43,6 +45,7 @@ int main(void) {
   dt = 0.01;
   L = 2 * pi;
   dx = L / N;
+  invN3 = 1.0 / (N * N * N);
   U = fftw_alloc_real(N * N * N);
   V = fftw_alloc_real(N * N * N);
   W = fftw_alloc_real(N * N * N);
@@ -125,22 +128,22 @@ int main(void) {
     backward(W_hat, W, work);
 
     for (k = 0; k < N * N * N; k++) {
-      U[k] /= tot;
-      V[k] /= tot;
-      W[k] /= tot;
+      U[k] *= invN3;
+      V[k] *= invN3;
+      W[k] *= invN3;
     }
     if (tstep % 2 == 0) {
       s = 0.0;
       for (k = 0; k < N * N * N; k++)
         s += U[k] * U[k] + V[k] * V[k] + W[k] * W[k];
       s *= 0.5 * dx * dx * dx / L / L / L;
-      fprintf(stderr, "k = %.16e\n", s);
+      fprintf(stderr, "eng = %.16Le\n", s);
       FILE *file;
       char path[FILENAME_MAX];
       sprintf(path, "%08d.raw", tstep);
       file = fopen(path, "w");
-      for (i = 0; i < sizeof list / sizeof *list; i++)
-        fwrite(list[i].var, N * N * N, sizeof(double), file);
+      for (idump = 0; idump < sizeof list / sizeof *list; idump++)
+        fwrite(list[idump].var, N * N * N, sizeof(double), file);
       fclose(file);
       sprintf(path, "a.%08d.xdmf2", tstep);
       file = fopen(path, "w");
@@ -169,7 +172,7 @@ int main(void) {
               "      </Geometry>\n",
               N, N, N, dx, dx, dx);
       offset = 0;
-      for (i = 0; i < sizeof list / sizeof *list; i++) {
+      for (idump = 0; idump < sizeof list / sizeof *list; idump++) {
         fprintf(file,
                 "      <Attribute\n"
                 "          Name=\"%s\">\n"
@@ -181,7 +184,7 @@ int main(void) {
                 "          %08d.raw\n"
                 "        </DataItem>\n"
                 "      </Attribute>\n",
-                list[i].name, offset, N, N, N, tstep);
+                list[idump].name, offset, N, N, N, tstep);
         offset += N * N * N * sizeof(double);
       }
       fprintf(file, "    </Grid>\n"
@@ -201,9 +204,9 @@ int main(void) {
         backward(V_hat, V, work);
         backward(W_hat, W, work);
         for (k = 0; k < N * N * N; k++) {
-          U[k] /= tot;
-          V[k] /= tot;
-          W[k] /= tot;
+          U[k] *= invN3;
+          V[k] *= invN3;
+          W[k] *= invN3;
         }
       }
       l = 0;
@@ -219,9 +222,9 @@ int main(void) {
       backward(curlY, CV, work);
       backward(curlZ, CW, work);
       for (k = 0; k < N * N * N; k++) {
-        CU[k] /= tot;
-        CV[k] /= tot;
-        CW[k] /= tot;
+        CU[k] *= invN3;
+        CV[k] *= invN3;
+        CW[k] *= invN3;
       }
       for (k = 0; k < N * N * N; k++) {
         U_tmp[k] = V[k] * CW[k] - W[k] * CV[k];
