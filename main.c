@@ -7,11 +7,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { n = 32, nf = n / 2 + 1, n3 = n * n * n, n3f = n * n * nf };
+enum {nvars = 4};
 static const double pi = 3.141592653589793238;
 static const double a[] = {1 / 6.0, 1 / 3.0, 1 / 3.0, 1 / 6.0};
 static const double b[] = {0.5, 0.5, 1.0};
-static void c2r(fftw_plan fplan, fftw_complex *hat, double *real,
+static void c2r(fftw_plan fplan, long n3f, fftw_complex *hat, double *real,
                 fftw_complex *work) {
   memcpy(work, hat, n3f * sizeof(fftw_complex));
   fftw_execute_dft_c2r(fplan, work, real);
@@ -25,7 +25,7 @@ int main(int argc, char **argv) {
   double dx, L, invn3, k2;
   fftw_complex *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
       *U_hat1, *V_hat, *V_hat0, *V_hat1, *W_hat, *W_hat0, *W_hat1, *dump_hat;
-  int *dealias, rk, tstep;
+  int *dealias, rk, tstep, Verbose;
   long i, j, k, l, offset;
   size_t idump;
   double *CU, *CV, *CW, *kk, *kx, *kz, kmax, nu, dt, T, t, *U, *U_tmp, *V,
@@ -35,12 +35,16 @@ int main(int argc, char **argv) {
 
   input_path = NULL;
   T = 0;
+  Verbose = 0;
   while (*++argv != NULL && argv[0][0] == '-') {
     switch (argv[0][1]) {
     case 'h':
-      fprintf(stderr, "Usage: dns -i input.raw -m visity -t <end time>\n\n"
+      fprintf(stderr, "Usage: dns [-v] -i input.raw -m visity -t <end time>\n\n"
                       "Example:\n"
                       "  dns -i input.raw -m 0.1 -t 1.0\n\n");
+      break;
+    case 'v':
+      Verbose = 1;
       break;
     case 'i':
       argv++;
@@ -76,15 +80,40 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
+  if ((file = fopen(input_path, "r")) == NULL) {
+    fprintf(stderr, "dns: error: fail to open '%s'\n", input_path);
+    exit(1);
+  }
+  fseek(file, 0, SEEK_END);
+  offset = ftell(file);
+  rewind(file);
+  long n = offset / sizeof(double) / nvars;
+  n = round(powf(n, 1.0/3));
+  if (n * n * n * nvars * sizeof(double) != offset) {
+    fprintf(stderr, "dns: error: wrong file '%s'\n", input_path);
+    exit(1);
+  }
+  if (Verbose)
+    fprintf(stderr, "dns: n = %ld\n", n);
+  long nf = n / 2 + 1;
+  long n3 = n * n * n;
+  long n3f = n * n * nf;
+  U = fftw_alloc_real(n3);
+  V = fftw_alloc_real(n3);
+  W = fftw_alloc_real(n3);
+  if (fread(U, sizeof(double), n3, file) != n3 ||
+      fread(V, sizeof(double), n3, file) != n3 ||
+      fread(W, sizeof(double), n3, file) != n3 ||
+      fclose(file) != 0) {
+    fprintf(stderr, "dns: error: fail to read '%s'\n", input_path);
+    exit(1);
+  }
   nu = 0.000625;
   dt = 0.01;
   L = 2 * pi;
   dx = L / n;
   invn3 = 1.0 / n3;
   dump = fftw_alloc_real(n3);
-  U = fftw_alloc_real(n3);
-  V = fftw_alloc_real(n3);
-  W = fftw_alloc_real(n3);
   U_tmp = fftw_alloc_real(n3);
   V_tmp = fftw_alloc_real(n3);
   W_tmp = fftw_alloc_real(n3);
@@ -115,27 +144,7 @@ int main(int argc, char **argv) {
   struct {
     fftw_complex *var;
     const char *name;
-  } list[] = {{U_hat, "U"}, {V_hat, "V"}, {W_hat, "W"}, {P_hat, "P"}};
-
-  if ((file = fopen(input_path, "r")) == NULL) {
-    fprintf(stderr, "dns: error: fail to open '%s'\n", input_path);
-    exit(1);
-  }
-  fseek(file, 0, SEEK_END);
-  offset = ftell(file);
-  if (fclose(file) != 0) {
-    fprintf(stderr, "dns: error: fail to close '%s'\n", input_path);
-    exit(1);
-  }
-
-  for (i = l = 0; i < n; i++)
-    for (j = 0; j < n; j++)
-      for (k = 0; k < n; k++, l++) {
-        U[l] = sin(dx * i) * cos(dx * j) * cos(dx * k);
-        V[l] = -cos(dx * i) * sin(dx * j) * cos(dx * k);
-        W[l] = 0.0;
-      }
-
+  } list[nvars] = {{U_hat, "U"}, {V_hat, "V"}, {W_hat, "W"}, {P_hat, "P"}};
   fplan = fftw_plan_dft_r2c_3d(n, n, n, U, U_hat,
                                FFTW_ESTIMATE | FFTW_PRESERVE_INPUT);
   bplan = fftw_plan_dft_c2r_3d(n, n, n, U_hat, U, FFTW_ESTIMATE);
@@ -238,9 +247,9 @@ int main(int argc, char **argv) {
     memcpy(W_hat1, W_hat, sizeof(fftw_complex) * n3f);
     for (rk = 0; rk < 4; rk++) {
       if (rk > 0) {
-        c2r(bplan, U_hat, U, curlX);
-        c2r(bplan, V_hat, V, curlX);
-        c2r(bplan, W_hat, W, curlX);
+        c2r(bplan, n3f, U_hat, U, curlX);
+        c2r(bplan, n3f, V_hat, V, curlX);
+        c2r(bplan, n3f, W_hat, W, curlX);
         for (k = 0; k < n3; k++) {
           U[k] *= invn3;
           V[k] *= invn3;
