@@ -8,6 +8,9 @@
 #include <string.h>
 
 enum { n = 32, nf = n / 2 + 1, n3 = n * n * n, n3f = n * n * nf };
+static const double pi = 3.141592653589793238;
+static const double a[] = {1 / 6.0, 1 / 3.0, 1 / 3.0, 1 / 6.0};
+static const double b[] = {0.5, 0.5, 1.0};
 static void c2r(fftw_plan fplan, fftw_complex *hat, double *real,
                 fftw_complex *work) {
   memcpy(work, hat, n3f * sizeof(fftw_complex));
@@ -16,6 +19,8 @@ static void c2r(fftw_plan fplan, fftw_complex *hat, double *real,
 
 int main(void) {
   fftw_plan fplan, bplan;
+  FILE *file;
+  char path[FILENAME_MAX];
   long double s;
   double dx, L, invn3, k2;
   fftw_complex *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
@@ -23,11 +28,8 @@ int main(void) {
   int *dealias, rk, tstep;
   long i, j, k, l, offset;
   size_t idump;
-  double a[] = {1 / 6.0, 1 / 3.0, 1 / 3.0, 1 / 6.0};
-  double b[] = {0.5, 0.5, 1.0};
   double *CU, *CV, *CW, *kk, *kx, *kz, kmax, nu, dt, T, t, *U, *U_tmp, *V,
       *V_tmp, *W, *W_tmp, *dump;
-  double pi = 3.141592653589793238;
   feclearexcept(FE_ALL_EXCEPT);
   feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
   nu = 0.000625;
@@ -114,14 +116,12 @@ int main(void) {
   t = 0.0;
   tstep = 0;
   while (t <= T) {
-    if (tstep % 2 == 0) {
+    if (tstep % 10 == 0) {
       s = 0.0;
       for (k = 0; k < n3; k++)
         s += U[k] * U[k] + V[k] * V[k] + W[k] * W[k];
       s *= 0.5 * dx * dx * dx / L / L / L;
       fprintf(stderr, "eng = %.16Le\n", s);
-      FILE *file;
-      char path[FILENAME_MAX];
       sprintf(path, "%08d.raw", tstep);
       file = fopen(path, "w");
       for (idump = 0; idump < sizeof list / sizeof *list; idump++) {
