@@ -193,9 +193,9 @@ int main(void) {
       for (i = l = 0; i < n; i++)
         for (j = 0; j < n; j++)
           for (k = 0; k < nf; k++, l++) {
-            curlZ[l] = I * (kx[i] * V_hat0[l] - kx[j] * U_hat0[l]);
-            curlY[l] = I * (kz[k] * U_hat0[l] - kx[i] * W_hat0[l]);
-            curlX[l] = I * (kx[j] * W_hat0[l] - kz[k] * V_hat0[l]);
+            curlZ[l] = I * (kx[i] * V_hat[l] - kx[j] * U_hat[l]);
+            curlY[l] = I * (kz[k] * U_hat[l] - kx[i] * W_hat[l]);
+            curlX[l] = I * (kx[j] * W_hat[l] - kz[k] * V_hat[l]);
           }
       fftw_execute_dft_c2r(bplan, curlX, CU);
       fftw_execute_dft_c2r(bplan, curlY, CV);
@@ -223,9 +223,9 @@ int main(void) {
         for (j = 0; j < n; j++)
           for (k = 0; k < nf; k++, l++) {
             P_hat[l] = (dU[l] * kx[i] + dV[l] * kx[j] + dW[l] * kz[k]) / kk[l];
-            dU[l] -= P_hat[l] * kx[i] + nu * dt * kk[l] * U_hat0[l];
-            dV[l] -= P_hat[l] * kx[j] + nu * dt * kk[l] * V_hat0[l];
-            dW[l] -= P_hat[l] * kz[k] + nu * dt * kk[l] * W_hat0[l];
+            dU[l] -= P_hat[l] * kx[i] + nu * dt * kk[l] * U_hat[l];
+            dV[l] -= P_hat[l] * kx[j] + nu * dt * kk[l] * V_hat[l];
+            dW[l] -= P_hat[l] * kz[k] + nu * dt * kk[l] * W_hat[l];
           }
 
       if (rk < 3) {
