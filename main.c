@@ -8,13 +8,6 @@
 #include <string.h>
 
 enum { N = 1 << 5, Nf = N / 2 + 1 };
-static void forward(double *U, fftw_complex *U_hat) {
-  fftw_plan plan;
-  plan = fftw_plan_dft_r2c_3d(N, N, N, U, U_hat,
-                              FFTW_ESTIMATE | FFTW_PRESERVE_INPUT);
-  fftw_execute_dft_r2c(plan, U, U_hat);
-  fftw_destroy_plan(plan);
-}
 static void backward(fftw_complex *U_hat, double *U, fftw_complex *work) {
   fftw_plan plan;
   memcpy(work, U_hat, N * N * 2 * Nf * sizeof(double));
@@ -24,6 +17,7 @@ static void backward(fftw_complex *U_hat, double *U, fftw_complex *work) {
 }
 
 int main(void) {
+  fftw_plan fplan;
   long double s;
   double dx, L, invN3;
   fftw_complex *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
@@ -80,6 +74,10 @@ int main(void) {
     double *var;
     const char *name;
   } list[] = {{U, "U"}, {V, "V"}, {W, "W"}};
+
+  fplan = fftw_plan_dft_r2c_3d(N, N, N, U, U_hat,
+                               FFTW_ESTIMATE | FFTW_PRESERVE_INPUT);
+
   for (i = 0; i < N / 2; i++) {
     kx[i] = i;
     kz[i] = i;
@@ -116,9 +114,9 @@ int main(void) {
         l++;
       }
 
-  forward(U, U_hat);
-  forward(V, V_hat);
-  forward(W, W_hat);
+  fftw_execute_dft_r2c(fplan, U, U_hat);
+  fftw_execute_dft_r2c(fplan, V, V_hat);
+  fftw_execute_dft_r2c(fplan, W, W_hat);
 
   t = 0.0;
   tstep = 0;
@@ -231,9 +229,9 @@ int main(void) {
         V_tmp[k] = W[k] * CU[k] - U[k] * CW[k];
         W_tmp[k] = U[k] * CV[k] - V[k] * CU[k];
       }
-      forward(U_tmp, dU);
-      forward(V_tmp, dV);
-      forward(W_tmp, dW);
+      fftw_execute_dft_r2c(fplan, U_tmp, dU);
+      fftw_execute_dft_r2c(fplan, V_tmp, dV);
+      fftw_execute_dft_r2c(fplan, W_tmp, dW);
 
       for (k = 0; k < N * N * Nf; k++) {
         dU[k] *= dealias[k] * dt;
