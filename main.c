@@ -8,6 +8,12 @@
 #include <string.h>
 
 enum { n = 32, nf = n / 2 + 1, n3 = n * n * n, n3f = n * n * nf };
+static void c2r(fftw_plan fplan, fftw_complex *hat, double *real,
+                fftw_complex *work) {
+  memcpy(work, hat, n3f * sizeof(fftw_complex));
+  fftw_execute_dft_c2r(fplan, work, real);
+}
+
 int main(void) {
   fftw_plan fplan, bplan;
   long double s;
@@ -181,9 +187,9 @@ int main(void) {
     memcpy(W_hat1, W_hat, sizeof(fftw_complex) * n3f);
     for (rk = 0; rk < 4; rk++) {
       if (rk > 0) {
-        fftw_execute_dft_c2r(bplan, U_hat, U);
-        fftw_execute_dft_c2r(bplan, V_hat, V);
-        fftw_execute_dft_c2r(bplan, W_hat, W);
+        c2r(bplan, U_hat, U, curlX);
+        c2r(bplan, V_hat, V, curlX);
+        c2r(bplan, W_hat, W, curlX);
         for (k = 0; k < n3; k++) {
           U[k] *= invn3;
           V[k] *= invn3;
