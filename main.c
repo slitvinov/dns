@@ -10,7 +10,7 @@
 enum { N = 1 << 5, Nf = N / 2 + 1 };
 static void backward(fftw_complex *U_hat, double *U, fftw_complex *work) {
   fftw_plan plan;
-  memcpy(work, U_hat, N * N * 2 * Nf * sizeof(double));
+  memcpy(work, U_hat, N * N * Nf * sizeof(fftw_complex));
   plan = fftw_plan_dft_c2r_3d(N, N, N, work, U, FFTW_ESTIMATE);
   fftw_execute_dft_c2r(plan, work, U);
   fftw_destroy_plan(plan);
