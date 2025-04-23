@@ -260,7 +260,7 @@ int main(int argc, char **argv) {
       s_in *= 0.5 * dx * dx * dx / L / L / L;
       MPI_Reduce(&s_in, &s_out, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
       if (rank == 0)
-        fprintf(stderr, "k = %.16e\n", s_out);
+        fprintf(stderr, "eng: %.16e\n", s_out);
     }
   }
   fftw_free(U);
