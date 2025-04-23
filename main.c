@@ -71,6 +71,11 @@ int main(int argc, char **argv) {
     fprintf(stderr, "dns: error: -t is not set or invalid\n");
     exit(1);
   }
+  if (input_path == NULL) {
+    fprintf(stderr, "dns: error: -i is not set\n");
+    exit(1);
+  }
+
   nu = 0.000625;
   dt = 0.01;
   L = 2 * pi;
@@ -106,18 +111,34 @@ int main(int argc, char **argv) {
   curlX = fftw_alloc_complex(n3f);
   curlY = fftw_alloc_complex(n3f);
   curlZ = fftw_alloc_complex(n3f);
-
   dump_hat = fftw_alloc_complex(n3f);
-
   struct {
     fftw_complex *var;
     const char *name;
   } list[] = {{U_hat, "U"}, {V_hat, "V"}, {W_hat, "W"}, {P_hat, "P"}};
 
+  if ((file = fopen(input_path, "r")) == NULL) {
+    fprintf(stderr, "dns: error: fail to open '%s'\n", input_path);
+    exit(1);
+  }
+  fseek(file, 0, SEEK_END);
+  offset = ftell(file);
+  if (fclose(file) != 0) {
+    fprintf(stderr, "dns: error: fail to close '%s'\n", input_path);
+    exit(1);
+  }
+
+  for (i = l = 0; i < n; i++)
+    for (j = 0; j < n; j++)
+      for (k = 0; k < n; k++, l++) {
+        U[l] = sin(dx * i) * cos(dx * j) * cos(dx * k);
+        V[l] = -cos(dx * i) * sin(dx * j) * cos(dx * k);
+        W[l] = 0.0;
+      }
+
   fplan = fftw_plan_dft_r2c_3d(n, n, n, U, U_hat,
                                FFTW_ESTIMATE | FFTW_PRESERVE_INPUT);
   bplan = fftw_plan_dft_c2r_3d(n, n, n, U_hat, U, FFTW_ESTIMATE);
-
   for (i = 0; i < n / 2; i++) {
     kx[i] = i;
     kz[i] = i;
@@ -137,14 +158,6 @@ int main(int argc, char **argv) {
       for (k = 0; k < nf; k++, l++) {
         k2 = kx[i] * kx[i] + kx[j] * kx[j] + kz[k] * kz[k];
         kk[l] = k2 > 0 ? k2 : 1;
-      }
-
-  for (i = l = 0; i < n; i++)
-    for (j = 0; j < n; j++)
-      for (k = 0; k < n; k++, l++) {
-        U[l] = sin(dx * i) * cos(dx * j) * cos(dx * k);
-        V[l] = -cos(dx * i) * sin(dx * j) * cos(dx * k);
-        W[l] = 0.0;
       }
 
   fftw_execute_dft_r2c(fplan, U, U_hat);
