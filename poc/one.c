@@ -11,7 +11,7 @@ int main(int argc, char **argv) {
   int j;
   double om;
   double *real;
-  fftw_complex * compl ;
+  fftw_complex *compl;
   fftw_complex *refer;
   unsigned flags;
   fftw_plan plan_r2c;
@@ -47,15 +47,15 @@ int main(int argc, char **argv) {
   }
 
   for (i = 0; i < m; i++)
-    printf("%d %+.16e %+.16e\n", i, cimag(compl [i]) - cimag(refer[i]),
-           creal(compl [i]) - creal(refer[i]));
+    printf("%d %+.16e %+.16e\n", i, cimag(compl[i]) - cimag(refer[i]),
+           creal(compl[i]) - creal(refer[i]));
 
   fftw_execute(plan_c2r);
   for (i = 0; i < n; i++)
     printf("%g\n", real[i] / n);
 
   fftw_free(real);
-  fftw_free(compl );
+  fftw_free(compl);
   fftw_free(refer);
   fftw_destroy_plan(plan_c2r);
   fftw_destroy_plan(plan_r2c);

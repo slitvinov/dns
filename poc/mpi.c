@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
   double om;
   double re;
   double *real;
-  fftw_complex * compl ;
+  fftw_complex *compl;
   fftw_complex *refer;
   fftw_plan plan_c2r;
   fftw_plan plan_r2c;
@@ -68,7 +68,7 @@ int main(int argc, char **argv) {
   }
   fftw_destroy_plan(plan_r2c);
   fftw_free(real);
-  fftw_free(compl );
+  fftw_free(compl);
   fftw_mpi_cleanup();
   MPI_CALL(MPI_Finalize());
 }

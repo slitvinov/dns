@@ -7,7 +7,7 @@
 enum { n0 = 2, n1 = 2, n2 = 2, m = n0 * n1 * (n2 / 2 + 1) };
 #define pi 3.141592653589793238
 
-int main(int argc, char **argv) {
+int main(void) {
   double im;
   double om;
   double re;
@@ -25,21 +25,22 @@ int main(int argc, char **argv) {
   int j0;
   int j1;
   int j2;
-  unsigned flags;
 
   real = fftw_alloc_real(n0 * n1 * n2);
   compl = fftw_alloc_complex(m);
   refer = fftw_alloc_complex(m);
 
-  flags = FFTW_ESTIMATE;
-  if ((plan_r2c = fftw_plan_dft_r2c_3d(n0, n1, n2, real, compl, flags)) ==
+  if ((plan_r2c = fftw_plan_dft_r2c_3d(n0, n1, n2, real, compl,
+                                       FFTW_ESTIMATE | FFTW_PRESERVE_INPUT)) ==
       NULL) {
-    fprintf(stderr, "%s:%d: fftw_plan_dft_r2c_3d\n", __FILE__, __LINE__);
+    fprintf(stderr, "%s:%d: error: fftw_plan_dft_r2c_3d failed\n", __FILE__,
+            __LINE__);
     exit(1);
   }
-  if ((plan_c2r = fftw_plan_dft_c2r_3d(n0, n1, n2, compl, real, flags)) ==
-      NULL) {
-    fprintf(stderr, "%s:%d: fftw_plan_dft_c2r_3d\n", __FILE__, __LINE__);
+  if ((plan_c2r = fftw_plan_dft_c2r_3d(n0, n1, n2, compl, real,
+                                       FFTW_ESTIMATE)) == NULL) {
+    fprintf(stderr, "%s:%d: error fftw_plan_dft_c2r_3d() failed\n", __FILE__,
+            __LINE__);
     exit(1);
   }
   for (i = 0; i < n0 * n1 * n2; i++)
