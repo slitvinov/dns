@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { n = 1 << 5, nf = n / 2 + 1 };
+enum { n = 32, nf = n / 2 + 1 };
 static void backward(fftw_complex *U_hat, double *U, fftw_complex *work) {
   fftw_plan plan;
   memcpy(work, U_hat, n * n * nf * sizeof(fftw_complex));
@@ -22,11 +22,9 @@ int main(void) {
   double dx, L, invn3;
   fftw_complex *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
       *U_hat1, *V_hat, *V_hat0, *V_hat1, *W_hat, *W_hat0, *W_hat1, *work;
-  int *dealias;
+  int *dealias, rk, tstep;
   long i, j, k, l, m, offset;
   size_t idump;
-  int rk;
-  int tstep;
   double a[] = {1 / 6.0, 1 / 3.0, 1 / 3.0, 1 / 6.0};
   double b[] = {0.5, 0.5, 1.0};
   double *CU, *CV, *CW, *kk, *kx, *kz, kmax, nu, dt, T, t, *U, *U_tmp, *V,
