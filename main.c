@@ -7,20 +7,20 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { n = 32, nf = n / 2 + 1, n3 = n * n * n, n3f = n * n * nf};
+enum { n = 32, nf = n / 2 + 1, n3 = n * n * n, n3f = n * n * nf };
 int main(void) {
   fftw_plan fplan, bplan;
   long double s;
-  double dx, L, invn3;
+  double dx, L, invn3, k2;
   fftw_complex *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
-    *U_hat1, *V_hat, *V_hat0, *V_hat1, *W_hat, *W_hat0, *W_hat1, *dump_hat;
+      *U_hat1, *V_hat, *V_hat0, *V_hat1, *W_hat, *W_hat0, *W_hat1, *dump_hat;
   int *dealias, rk, tstep;
-  long i, j, k, l, m, offset;
+  long i, j, k, l, offset;
   size_t idump;
   double a[] = {1 / 6.0, 1 / 3.0, 1 / 3.0, 1 / 6.0};
   double b[] = {0.5, 0.5, 1.0};
   double *CU, *CV, *CW, *kk, *kx, *kz, kmax, nu, dt, T, t, *U, *U_tmp, *V,
-    *V_tmp, *W, *W_tmp, *dump;
+      *V_tmp, *W, *W_tmp, *dump;
   double pi = 3.141592653589793238;
   feclearexcept(FE_ALL_EXCEPT);
   feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
@@ -60,16 +60,17 @@ int main(void) {
   curlX = fftw_alloc_complex(n3f);
   curlY = fftw_alloc_complex(n3f);
   curlZ = fftw_alloc_complex(n3f);
-  
+
   dump_hat = fftw_alloc_complex(n3f);
-  
+
   struct {
     fftw_complex *var;
     const char *name;
   } list[] = {{U_hat, "U"}, {V_hat, "V"}, {W_hat, "W"}, {P_hat, "P"}};
 
-  fplan = fftw_plan_dft_r2c_3d(n, n, n, U, U_hat, FFTW_ESTIMATE | FFTW_PRESERVE_INPUT);
-  bplan = fftw_plan_dft_c2r_3d(n, n, n, U_hat, U, FFTW_ESTIMATE);  
+  fplan = fftw_plan_dft_r2c_3d(n, n, n, U, U_hat,
+                               FFTW_ESTIMATE | FFTW_PRESERVE_INPUT);
+  bplan = fftw_plan_dft_c2r_3d(n, n, n, U_hat, U, FFTW_ESTIMATE);
 
   for (i = 0; i < n / 2; i++) {
     kx[i] = i;
@@ -88,8 +89,8 @@ int main(void) {
   for (i = l = 0; i < n; i++)
     for (j = 0; j < n; j++)
       for (k = 0; k < nf; k++, l++) {
-        m = kx[i] * kx[i] + kx[j] * kx[j] + kz[k] * kz[k];
-        kk[l] = m > 0 ? m : 1;
+        k2 = kx[i] * kx[i] + kx[j] * kx[j] + kz[k] * kz[k];
+        kk[l] = k2 > 0 ? k2 : 1;
       }
 
   for (i = l = 0; i < n; i++)
@@ -118,10 +119,10 @@ int main(void) {
       sprintf(path, "%08d.raw", tstep);
       file = fopen(path, "w");
       for (idump = 0; idump < sizeof list / sizeof *list; idump++) {
-	memcpy(dump_hat, list[idump].var, n3f * sizeof(fftw_complex));
-	fftw_execute_dft_c2r(bplan, dump_hat, dump);
-	for (i = 0; i < n3; i++)
-	  dump[i] *= invn3;
+        memcpy(dump_hat, list[idump].var, n3f * sizeof(fftw_complex));
+        fftw_execute_dft_c2r(bplan, dump_hat, dump);
+        for (i = 0; i < n3; i++)
+          dump[i] *= invn3;
         fwrite(dump, n3, sizeof(double), file);
       }
       fclose(file);
@@ -180,9 +181,9 @@ int main(void) {
     memcpy(W_hat1, W_hat, sizeof(fftw_complex) * n3f);
     for (rk = 0; rk < 4; rk++) {
       if (rk > 0) {
-	fftw_execute_dft_c2r(bplan, U_hat, U);
-	fftw_execute_dft_c2r(bplan, V_hat, V);
-	fftw_execute_dft_c2r(bplan, W_hat, W);
+        fftw_execute_dft_c2r(bplan, U_hat, U);
+        fftw_execute_dft_c2r(bplan, V_hat, V);
+        fftw_execute_dft_c2r(bplan, W_hat, W);
         for (k = 0; k < n3; k++) {
           U[k] *= invn3;
           V[k] *= invn3;
@@ -198,7 +199,7 @@ int main(void) {
           }
       fftw_execute_dft_c2r(bplan, curlX, CU);
       fftw_execute_dft_c2r(bplan, curlY, CV);
-      fftw_execute_dft_c2r(bplan, curlZ, CW);      
+      fftw_execute_dft_c2r(bplan, curlZ, CW);
       for (k = 0; k < n3; k++) {
         CU[k] *= invn3;
         CV[k] *= invn3;
@@ -248,7 +249,7 @@ int main(void) {
   }
 
   fftw_destroy_plan(fplan);
-  fftw_destroy_plan(bplan);  
+  fftw_destroy_plan(bplan);
   fftw_free(CU);
   fftw_free(curlX);
   fftw_free(curlY);
