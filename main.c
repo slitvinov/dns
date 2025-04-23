@@ -17,10 +17,10 @@ static void c2r(fftw_plan fplan, fftw_complex *hat, double *real,
   fftw_execute_dft_c2r(fplan, work, real);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
   fftw_plan fplan, bplan;
   FILE *file;
-  char path[FILENAME_MAX];
+  char path[FILENAME_MAX], *input_path, *end;
   long double s;
   double dx, L, invn3, k2;
   fftw_complex *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
@@ -32,8 +32,46 @@ int main(void) {
       *V_tmp, *W, *W_tmp, *dump;
   feclearexcept(FE_ALL_EXCEPT);
   feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
+
+  input_path = NULL;
+  T = 0;
+  while (*++argv != NULL && argv[0][0] == '-') {
+    switch (argv[0][1]) {
+    case 'h':
+      fprintf(stderr, "Usage: dns -i input.raw -m visity -t <end time>\n\n"
+                      "Example:\n"
+                      "  dns -i input.raw -m 0.1 -t 1.0\n\n");
+      break;
+    case 'i':
+      argv++;
+      if (*argv == NULL) {
+        fprintf(stderr, "dns: error: -i needs an argument\n");
+        exit(1);
+      }
+      input_path = *argv;
+      break;
+    case 't':
+      argv++;
+      if (*argv == NULL) {
+        fprintf(stderr, "dns: error: -i needs an argument\n");
+        exit(1);
+      }
+      T = strtod(*argv, &end);
+      if (*end != '\0') {
+        fprintf(stderr, "dns: error: '%s' is not a number\n", *argv);
+        exit(1);
+      }
+      break;
+    default:
+      fprintf(stderr, "dns: error: unknown option '%s'\n", *argv);
+      exit(1);
+    }
+  }
+  if (T == 0) {
+    fprintf(stderr, "dns: error: -t is not set or invalid\n");
+    exit(1);
+  }
   nu = 0.000625;
-  T = 0.1;
   dt = 0.01;
   L = 2 * pi;
   dx = L / n;
