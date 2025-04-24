@@ -35,3 +35,7 @@ eng: 1.2495311752707980e-01
 - Orszag, S. A., & Patterson Jr, G. S. (1972). Numerical simulation of
   three-dimensional homogeneous isotropic turbulence. Physical review
   letters, 28(2), 76.
+
+- Mortensen, M. (2016). Massively parallel implementation in Python of
+  a pseudo-spectral DNS code for turbulent flows. arXiv preprint
+  arXiv:1607.00850.
