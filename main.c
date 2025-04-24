@@ -16,7 +16,9 @@ static void c2r(fftw_plan fplan, long n3f, fftw_complex *hat, double *real,
   memcpy(work, hat, n3f * sizeof(fftw_complex));
   fftw_execute_dft_c2r(fplan, work, real);
 }
-
+static double mag(fftw_complex z) {
+  return creal(z) * creal(z) + cimag(z) * cimag(z);
+}
 int main(int argc, char **argv) {
   (void)argc;
   fftw_plan fplan, bplan;
@@ -196,9 +198,10 @@ int main(int argc, char **argv) {
   for (;;) {
     if (tstep % 10 == 0) {
       s = 0.0;
-      for (k = 0; k < n3; k++)
-        s += U[k] * U[k] + V[k] * V[k] + W[k] * W[k];
-      s *= 0.5 * dx * dx * dx / L / L / L;
+      for (k = 0; k < n3f; k++) {
+        s += mag(U_hat[k]) + mag(V_hat[k]) + mag(W_hat[k]);
+      }
+      s *= invn3 * invn3;
       fprintf(stderr, "dns: % 8ld % .4e % .4Le\n", tstep, t, s);
       sprintf(path, "%08ld.raw", tstep);
       file = fopen(path, "w");
@@ -270,7 +273,7 @@ int main(int argc, char **argv) {
     memcpy(W_hat1, W_hat, sizeof(fftw_complex) * n3f);
     for (rk = 0; rk < 4; rk++) {
       if (rk > 0) {
-        c2r(bplan, n3f, U_hat, U, curlX);
+        c2r(bplan, n3f, U_hat, U, curlX); /* dump work space */
         c2r(bplan, n3f, V_hat, V, curlX);
         c2r(bplan, n3f, W_hat, W, curlX);
         for (k = 0; k < n3; k++) {

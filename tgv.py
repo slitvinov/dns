@@ -9,6 +9,7 @@ args = parser.parse_args()
 
 import math
 import numpy as np
+
 L = 2 * math.pi
 nvars = 4
 n = 1 << args.level
@@ -19,6 +20,6 @@ i = np.arange(n)
 s = np.sin(dx * i)
 c = np.cos(dx * i)
 np.einsum('i,j,k', s, c, c, out=U)
-np.einsum('i,j,k', -c, s, c, out=V)
+np.einsum('i,j,k', -c, s, c, out=W)
 P.fill(0)
-W.fill(0)
+V.fill(0)
