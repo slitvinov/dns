@@ -24,7 +24,7 @@ int main(int argc, char **argv) {
   fftw_plan fplan, bplan;
   FILE *file;
   char path[FILENAME_MAX], *input_path, *end;
-  long double s;
+  long double energy, Omega;
   double dx, L, invn3, k2, kmax, nu, dt, T, t;
   fftw_complex *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
       *U_hat1, *V_hat, *V_hat0, *V_hat1, *W_hat, *W_hat0, *W_hat1, *dump_hat;
@@ -197,12 +197,16 @@ int main(int argc, char **argv) {
   tstep = 0;
   for (;;) {
     if (tstep % 10 == 0) {
-      s = 0.0;
+      energy = 0.0;
+      Omega = 0.0;
       for (k = 0; k < n3f; k++) {
-        s += mag(U_hat[k]) + mag(V_hat[k]) + mag(W_hat[k]);
+        energy += mag(U_hat[k]) + mag(V_hat[k]) + mag(W_hat[k]);
+        Omega += mag(curlX[k]) + mag(curlY[k]) + mag(curlZ[k]);
       }
-      s *= invn3 * invn3;
-      fprintf(stderr, "dns: % 8ld % .4e % .4Le\n", tstep, t, s);
+      energy *= invn3 * invn3;
+      Omega *= invn3 * invn3;
+      fprintf(stderr, "dns: % 8ld % .4e % .16Le % .16Le\n", tstep, t, energy,
+              Omega);
       sprintf(path, "%08ld.raw", tstep);
       file = fopen(path, "w");
       for (ivar = 0; ivar < sizeof list / sizeof *list; ivar++) {

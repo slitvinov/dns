@@ -3,7 +3,7 @@
 Serial
 <pre>
 $ ./tgv.py -l 4 -o tgv.raw
-$ c99 main.c -lfftw3_mpi -lfftw3 -O2 -g -lm
+$ c99 main.c -O2 -g -lfftw3 -lm
 $ ./a.out -i tgv.raw -t 1.0 -n 1.0
 dns:        0  0.0000e+00  1.2500e-01
 dns:       10  1.0000e-01  6.8593e-02
@@ -28,3 +28,10 @@ eng: 1.2497187465530142e-01
 eng: 1.2496249730189801e-01
 eng: 1.2495311752707980e-01
 </pre>
+
+<h2>References</h2>
+
+- Brachet, M. E., Meiron, D. I., Orszag, S. A., Nickel, B. G., Morf,
+  R. H., & Frisch, U. (1983). Small-scale structure of the
+  Taylor–Green vortex. Journal of Fluid Mechanics, 130, 411-452.
+
