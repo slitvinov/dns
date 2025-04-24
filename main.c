@@ -28,7 +28,7 @@ int main(int argc, char **argv) {
   double dx, L, invn3, k2, kmax, nu, dt, T, t;
   fftw_complex *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
       *U_hat1, *V_hat, *V_hat0, *V_hat1, *W_hat, *W_hat0, *W_hat1, *dump_hat;
-  int *dealias, rk, Verbose;
+  int *dealias, rk, Verbose, Dump;
   long i, j, k, l, idump, tstep;
   size_t offset;
   size_t ivar;
@@ -41,16 +41,20 @@ int main(int argc, char **argv) {
   T = 0;
   nu = -1;
   Verbose = 0;
+  Dump = 0;
   while (*++argv != NULL && argv[0][0] == '-') {
     switch (argv[0][1]) {
     case 'h':
       fprintf(stderr,
-              "Usage: dns [-v] -i input.raw -n viscosity -t <end time>\n\n"
+              "Usage: dns [-v] [-d] -i input.raw -n viscosity -t <end time>\n\n"
               "Example:\n"
               "  dns -i input.raw -m 0.1 -t 1.0\n\n");
       break;
     case 'v':
       Verbose = 1;
+      break;
+    case 'd':
+      Dump = 1;
       break;
     case 'i':
       argv++;
@@ -207,65 +211,68 @@ int main(int argc, char **argv) {
       Omega *= invn3 * invn3;
       fprintf(stderr, "dns: % 8ld % .4e % .16Le % .16Le\n", tstep, t, energy,
               Omega);
-      sprintf(path, "%08ld.raw", tstep);
-      file = fopen(path, "w");
-      for (ivar = 0; ivar < sizeof list / sizeof *list; ivar++) {
-        memcpy(dump_hat, list[ivar].var, n3f * sizeof(fftw_complex));
-        fftw_execute_dft_c2r(bplan, dump_hat, dump);
-        for (i = 0; i < n3; i++)
-          dump[i] *= invn3;
-        fwrite(dump, n3, sizeof(double), file);
-      }
-      fclose(file);
-      sprintf(path, "a.%08ld.xdmf2", idump);
-      file = fopen(path, "w");
-      fprintf(file,
-              "<Xdmf\n"
-              "    Version=\"2\">\n"
-              "  <Domain>\n"
-              "    <Grid>\n"
-              "      <Time\n"
-              "          Value=\"%+.16e\"/>\n"
-              "      <Topology\n"
-              "          TopologyType=\"3DCoRectMesh\"\n"
-              "          Dimensions=\"%ld %ld %ld\"/>\n"
-              "      <Geometry\n"
-              "          GeometryType=\"ORIGIn_DXDYDZ\">\n"
-              "        <DataItem\n"
-              "            Dimensions=\"3\">\n"
-              "          0\n"
-              "          0\n"
-              "          0\n"
-              "        </DataItem>\n"
-              "        <DataItem\n"
-              "            Dimensions=\"3\">\n"
-              "          %.16e\n"
-              "          %.16e\n"
-              "          %.16e\n"
-              "        </DataItem>\n"
-              "      </Geometry>\n",
-              t, n, n, n, dx, dx, dx);
-      offset = 0;
-      for (ivar = 0; ivar < sizeof list / sizeof *list; ivar++) {
+
+      if (Dump) {
+        sprintf(path, "%08ld.raw", tstep);
+        file = fopen(path, "w");
+        for (ivar = 0; ivar < sizeof list / sizeof *list; ivar++) {
+          memcpy(dump_hat, list[ivar].var, n3f * sizeof(fftw_complex));
+          fftw_execute_dft_c2r(bplan, dump_hat, dump);
+          for (i = 0; i < n3; i++)
+            dump[i] *= invn3;
+          fwrite(dump, n3, sizeof(double), file);
+        }
+        fclose(file);
+        sprintf(path, "a.%08ld.xdmf2", idump);
+        file = fopen(path, "w");
         fprintf(file,
-                "      <Attribute\n"
-                "          name=\"%s\">\n"
+                "<Xdmf\n"
+                "    Version=\"2\">\n"
+                "  <Domain>\n"
+                "    <Grid>\n"
+                "      <Time\n"
+                "          Value=\"%+.16e\"/>\n"
+                "      <Topology\n"
+                "          TopologyType=\"3DCoRectMesh\"\n"
+                "          Dimensions=\"%ld %ld %ld\"/>\n"
+                "      <Geometry\n"
+                "          GeometryType=\"ORIGIn_DXDYDZ\">\n"
                 "        <DataItem\n"
-                "            Format=\"Binary\"\n"
-                "            Seek=\"%ld\"\n"
-                "            Precision=\"8\"\n"
-                "            Dimensions=\"%ld %ld %ld\">\n"
-                "          %08ld.raw\n"
+                "            Dimensions=\"3\">\n"
+                "          0\n"
+                "          0\n"
+                "          0\n"
                 "        </DataItem>\n"
-                "      </Attribute>\n",
-                list[ivar].name, offset, n, n, n, idump);
-        offset += n3 * sizeof(double);
+                "        <DataItem\n"
+                "            Dimensions=\"3\">\n"
+                "          %.16e\n"
+                "          %.16e\n"
+                "          %.16e\n"
+                "        </DataItem>\n"
+                "      </Geometry>\n",
+                t, n, n, n, dx, dx, dx);
+        offset = 0;
+        for (ivar = 0; ivar < sizeof list / sizeof *list; ivar++) {
+          fprintf(file,
+                  "      <Attribute\n"
+                  "          name=\"%s\">\n"
+                  "        <DataItem\n"
+                  "            Format=\"Binary\"\n"
+                  "            Seek=\"%ld\"\n"
+                  "            Precision=\"8\"\n"
+                  "            Dimensions=\"%ld %ld %ld\">\n"
+                  "          %08ld.raw\n"
+                  "        </DataItem>\n"
+                  "      </Attribute>\n",
+                  list[ivar].name, offset, n, n, n, idump);
+          offset += n3 * sizeof(double);
+        }
+        fprintf(file, "    </Grid>\n"
+                      "  </Domain>\n"
+                      "</Xdmf>\n");
+        fclose(file);
+        idump++;
       }
-      fprintf(file, "    </Grid>\n"
-                    "  </Domain>\n"
-                    "</Xdmf>\n");
-      fclose(file);
-      idump++;
     }
     if (t > T)
       break;
