@@ -201,7 +201,7 @@ int main(int argc, char **argv) {
       Omega = 0.0;
       for (k = 0; k < n3f; k++) {
         energy += mag(U_hat[k]) + mag(V_hat[k]) + mag(W_hat[k]);
-        Omega += mag(curlX[k]) + mag(curlY[k]) + mag(curlZ[k]);
+        Omega += kk[k] * (mag(U_hat[k]) + mag(V_hat[k]) + mag(W_hat[k]));
       }
       energy *= invn3 * invn3;
       Omega *= invn3 * invn3;
