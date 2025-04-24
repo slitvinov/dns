@@ -209,9 +209,7 @@ int main(int argc, char **argv) {
       }
       energy *= invn3 * invn3;
       Omega *= invn3 * invn3;
-      fprintf(stderr, "dns: % 8ld % .4e % .16Le % .16Le\n", tstep, t, energy,
-              Omega);
-
+      printf("% 10ld % .16e % .16Le % .16Le\n", tstep, t, energy, Omega);
       if (Dump) {
         sprintf(path, "%08ld.raw", tstep);
         file = fopen(path, "w");
