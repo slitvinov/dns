@@ -210,6 +210,7 @@ int main(int argc, char **argv) {
       energy *= invn3 * invn3;
       Omega *= invn3 * invn3;
       printf("% 10ld % .16e % .16Le % .16Le\n", tstep, t, energy, Omega);
+      fflush(stdout);
       if (Dump) {
         sprintf(path, "%08ld.raw", tstep);
         file = fopen(path, "w");
