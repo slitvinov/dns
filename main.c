@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum {nvars = 4};
+enum { nvars = 4 };
 static const double pi = 3.141592653589793238;
 static const double a[] = {1 / 6.0, 1 / 3.0, 1 / 3.0, 1 / 6.0};
 static const double b[] = {0.5, 0.5, 1.0};
@@ -22,26 +22,28 @@ int main(int argc, char **argv) {
   FILE *file;
   char path[FILENAME_MAX], *input_path, *end;
   long double s;
-  double dx, L, invn3, k2;
+  double dx, L, invn3, k2, kmax, nu, dt, T, t;
   fftw_complex *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
       *U_hat1, *V_hat, *V_hat0, *V_hat1, *W_hat, *W_hat0, *W_hat1, *dump_hat;
   int *dealias, rk, tstep, Verbose;
   long i, j, k, l, offset;
   size_t idump;
-  double *CU, *CV, *CW, *kk, *kx, *kz, kmax, nu, dt, T, t, *U, *U_tmp, *V,
-      *V_tmp, *W, *W_tmp, *dump;
+  double *CU, *CV, *CW, *kk, *kx, *kz, *U, *U_tmp, *V, *V_tmp, *W, *W_tmp,
+      *dump;
   feclearexcept(FE_ALL_EXCEPT);
   feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
 
   input_path = NULL;
   T = 0;
+  nu = -1;
   Verbose = 0;
   while (*++argv != NULL && argv[0][0] == '-') {
     switch (argv[0][1]) {
     case 'h':
-      fprintf(stderr, "Usage: dns [-v] -i input.raw -m visity -t <end time>\n\n"
-                      "Example:\n"
-                      "  dns -i input.raw -m 0.1 -t 1.0\n\n");
+      fprintf(stderr,
+              "Usage: dns [-v] -i input.raw -n viscosity -t <end time>\n\n"
+              "Example:\n"
+              "  dns -i input.raw -m 0.1 -t 1.0\n\n");
       break;
     case 'v':
       Verbose = 1;
@@ -53,6 +55,18 @@ int main(int argc, char **argv) {
         exit(1);
       }
       input_path = *argv;
+      break;
+    case 'n':
+      argv++;
+      if (*argv == NULL) {
+        fprintf(stderr, "dns: error: -n needs an argument\n");
+        exit(1);
+      }
+      nu = strtod(*argv, &end);
+      if (*end != '\0') {
+        fprintf(stderr, "dns: error: '%s' is not a number\n", *argv);
+        exit(1);
+      }
       break;
     case 't':
       argv++;
@@ -75,11 +89,14 @@ int main(int argc, char **argv) {
     fprintf(stderr, "dns: error: -t is not set or invalid\n");
     exit(1);
   }
+  if (nu == -1) {
+    fprintf(stderr, "dns: error: -n is not set or invalid\n");
+    exit(1);
+  }
   if (input_path == NULL) {
     fprintf(stderr, "dns: error: -i is not set\n");
     exit(1);
   }
-
   if ((file = fopen(input_path, "r")) == NULL) {
     fprintf(stderr, "dns: error: fail to open '%s'\n", input_path);
     exit(1);
@@ -88,7 +105,7 @@ int main(int argc, char **argv) {
   offset = ftell(file);
   rewind(file);
   long n = offset / sizeof(double) / nvars;
-  n = round(powf(n, 1.0/3));
+  n = round(powf(n, 1.0 / 3));
   if (n * n * n * nvars * sizeof(double) != offset) {
     fprintf(stderr, "dns: error: wrong file '%s'\n", input_path);
     exit(1);
@@ -103,12 +120,10 @@ int main(int argc, char **argv) {
   W = fftw_alloc_real(n3);
   if (fread(U, sizeof(double), n3, file) != n3 ||
       fread(V, sizeof(double), n3, file) != n3 ||
-      fread(W, sizeof(double), n3, file) != n3 ||
-      fclose(file) != 0) {
+      fread(W, sizeof(double), n3, file) != n3 || fclose(file) != 0) {
     fprintf(stderr, "dns: error: fail to read '%s'\n", input_path);
     exit(1);
   }
-  nu = 0.000625;
   dt = 0.01;
   L = 2 * pi;
   dx = L / n;
@@ -175,13 +190,13 @@ int main(int argc, char **argv) {
 
   t = 0.0;
   tstep = 0;
-  while (t <= T) {
+  for (;;) {
     if (tstep % 10 == 0) {
       s = 0.0;
       for (k = 0; k < n3; k++)
         s += U[k] * U[k] + V[k] * V[k] + W[k] * W[k];
       s *= 0.5 * dx * dx * dx / L / L / L;
-      fprintf(stderr, "eng = %.16Le\n", s);
+      fprintf(stderr, "dns: % 8d % .4e % .4Le\n", tstep, t, s);
       sprintf(path, "%08d.raw", tstep);
       file = fopen(path, "w");
       for (idump = 0; idump < sizeof list / sizeof *list; idump++) {
@@ -201,7 +216,7 @@ int main(int argc, char **argv) {
               "    <Grid>\n"
               "      <Topology\n"
               "	  TopologyType=\"3DCoRectMesh\"\n"
-              "	  Dimensions=\"%d %d %d\"/>\n"
+              "	  Dimensions=\"%ld %ld %ld\"/>\n"
               "      <Geometry\n"
               "	  GeometryType=\"ORIGIn_DXDYDZ\">\n"
               "	<DataItem\n"
@@ -227,7 +242,7 @@ int main(int argc, char **argv) {
                 "            Format=\"Binary\"\n"
                 "            Seek=\"%ld\"\n"
                 "            Precision=\"8\"\n"
-                "            Dimensions=\"%d %d %d\">\n"
+                "            Dimensions=\"%ld %ld %ld\">\n"
                 "          %08d.raw\n"
                 "        </DataItem>\n"
                 "      </Attribute>\n",
@@ -239,6 +254,8 @@ int main(int argc, char **argv) {
                     "</Xdmf>\n");
       fclose(file);
     }
+    if (t > T)
+      break;
     memcpy(U_hat0, U_hat, sizeof(fftw_complex) * n3f);
     memcpy(V_hat0, V_hat, sizeof(fftw_complex) * n3f);
     memcpy(W_hat0, W_hat, sizeof(fftw_complex) * n3f);
