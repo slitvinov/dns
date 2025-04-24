@@ -26,8 +26,8 @@ int main(int argc, char **argv) {
   double dx, L, invn3, k2, kmax, nu, dt, T, t;
   fftw_complex *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
       *U_hat1, *V_hat, *V_hat0, *V_hat1, *W_hat, *W_hat0, *W_hat1, *dump_hat;
-  int *dealias, rk, tstep, Verbose;
-  long i, j, k, l, idump;
+  int *dealias, rk, Verbose;
+  long i, j, k, l, idump, tstep;
   size_t offset;
   size_t ivar;
   double *CU, *CV, *CW, *kk, *kx, *kz, *U, *U_tmp, *V, *V_tmp, *W, *W_tmp,
@@ -126,7 +126,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "dns: error: fail to read '%s'\n", input_path);
     exit(1);
   }
-  dt = 0.01;
+  dt = 0.001;
   L = 2 * pi;
   dx = L / n;
   invn3 = 1.0 / n3;
@@ -199,8 +199,8 @@ int main(int argc, char **argv) {
       for (k = 0; k < n3; k++)
         s += U[k] * U[k] + V[k] * V[k] + W[k] * W[k];
       s *= 0.5 * dx * dx * dx / L / L / L;
-      fprintf(stderr, "dns: % 8ld % .4e % .4Le\n", idump, t, s);
-      sprintf(path, "%08ld.raw", idump);
+      fprintf(stderr, "dns: % 8ld % .4e % .4Le\n", tstep, t, s);
+      sprintf(path, "%08ld.raw", tstep);
       file = fopen(path, "w");
       for (ivar = 0; ivar < sizeof list / sizeof *list; ivar++) {
         memcpy(dump_hat, list[ivar].var, n3f * sizeof(fftw_complex));
