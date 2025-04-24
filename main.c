@@ -132,7 +132,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "dns: error: fail to read '%s'\n", input_path);
     exit(1);
   }
-  dt = 0.01;
+  dt = 0.0025;
   L = 2 * pi;
   dx = L / n;
   invn3 = 1.0 / n3;
