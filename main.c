@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
       *U_hat1, *V_hat, *V_hat0, *V_hat1, *W_hat, *W_hat0, *W_hat1, *dump_hat;
   int *dealias, rk, tstep, Verbose;
   long i, j, k, l, offset;
-  size_t idump;
+  size_t ivar;
   double *CU, *CV, *CW, *kk, *kx, *kz, *U, *U_tmp, *V, *V_tmp, *W, *W_tmp,
       *dump;
   feclearexcept(FE_ALL_EXCEPT);
@@ -199,8 +199,8 @@ int main(int argc, char **argv) {
       fprintf(stderr, "dns: % 8d % .4e % .4Le\n", tstep, t, s);
       sprintf(path, "%08d.raw", tstep);
       file = fopen(path, "w");
-      for (idump = 0; idump < sizeof list / sizeof *list; idump++) {
-        memcpy(dump_hat, list[idump].var, n3f * sizeof(fftw_complex));
+      for (ivar = 0; ivar < sizeof list / sizeof *list; ivar++) {
+        memcpy(dump_hat, list[ivar].var, n3f * sizeof(fftw_complex));
         fftw_execute_dft_c2r(bplan, dump_hat, dump);
         for (i = 0; i < n3; i++)
           dump[i] *= invn3;
@@ -234,7 +234,7 @@ int main(int argc, char **argv) {
               "      </Geometry>\n",
               n, n, n, dx, dx, dx);
       offset = 0;
-      for (idump = 0; idump < sizeof list / sizeof *list; idump++) {
+      for (ivar = 0; ivar < sizeof list / sizeof *list; ivar++) {
         fprintf(file,
                 "      <Attribute\n"
                 "          name=\"%s\">\n"
@@ -246,7 +246,7 @@ int main(int argc, char **argv) {
                 "          %08d.raw\n"
                 "        </DataItem>\n"
                 "      </Attribute>\n",
-                list[idump].name, offset, n, n, n, tstep);
+                list[ivar].name, offset, n, n, n, tstep);
         offset += n3 * sizeof(double);
       }
       fprintf(file, "    </Grid>\n"
