@@ -7,12 +7,14 @@ parser.add_argument("-l", "--level", type=int, required=True)
 parser.add_argument("-o", "--output", type=str, required=True)
 args = parser.parse_args()
 
+import sys
 import math
 import numpy as np
 
 L = 2 * math.pi
 nvars = 4
 n = 1 << args.level
+sys.stderr.write(f"tgv.py: {n=}\n")
 dx = L / n
 a = np.memmap(args.output, dtype=float, mode="w+", shape=(nvars, n, n, n))
 U, V, W, P = a
