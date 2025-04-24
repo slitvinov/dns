@@ -18,6 +18,7 @@ static void c2r(fftw_plan fplan, long n3f, fftw_complex *hat, double *real,
 }
 
 int main(int argc, char **argv) {
+  (void)argc;
   fftw_plan fplan, bplan;
   FILE *file;
   char path[FILENAME_MAX], *input_path, *end;
@@ -26,7 +27,8 @@ int main(int argc, char **argv) {
   fftw_complex *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
       *U_hat1, *V_hat, *V_hat0, *V_hat1, *W_hat, *W_hat0, *W_hat1, *dump_hat;
   int *dealias, rk, tstep, Verbose;
-  long i, j, k, l, offset;
+  long i, j, k, l, idump;
+  size_t offset;
   size_t ivar;
   double *CU, *CV, *CW, *kk, *kx, *kz, *U, *U_tmp, *V, *V_tmp, *W, *W_tmp,
       *dump;
@@ -118,9 +120,9 @@ int main(int argc, char **argv) {
   U = fftw_alloc_real(n3);
   V = fftw_alloc_real(n3);
   W = fftw_alloc_real(n3);
-  if (fread(U, sizeof(double), n3, file) != n3 ||
-      fread(V, sizeof(double), n3, file) != n3 ||
-      fread(W, sizeof(double), n3, file) != n3 || fclose(file) != 0) {
+  if (fread(U, sizeof(double), n3, file) != (size_t)n3 ||
+      fread(V, sizeof(double), n3, file) != (size_t)n3 ||
+      fread(W, sizeof(double), n3, file) != (size_t)n3 || fclose(file) != 0) {
     fprintf(stderr, "dns: error: fail to read '%s'\n", input_path);
     exit(1);
   }
@@ -188,6 +190,7 @@ int main(int argc, char **argv) {
   fftw_execute_dft_r2c(fplan, V, V_hat);
   fftw_execute_dft_r2c(fplan, W, W_hat);
 
+  idump = 0;
   t = 0.0;
   tstep = 0;
   for (;;) {
@@ -196,8 +199,8 @@ int main(int argc, char **argv) {
       for (k = 0; k < n3; k++)
         s += U[k] * U[k] + V[k] * V[k] + W[k] * W[k];
       s *= 0.5 * dx * dx * dx / L / L / L;
-      fprintf(stderr, "dns: % 8d % .4e % .4Le\n", tstep, t, s);
-      sprintf(path, "%08d.raw", tstep);
+      fprintf(stderr, "dns: % 8ld % .4e % .4Le\n", idump, t, s);
+      sprintf(path, "%08ld.raw", idump);
       file = fopen(path, "w");
       for (ivar = 0; ivar < sizeof list / sizeof *list; ivar++) {
         memcpy(dump_hat, list[ivar].var, n3f * sizeof(fftw_complex));
@@ -207,7 +210,7 @@ int main(int argc, char **argv) {
         fwrite(dump, n3, sizeof(double), file);
       }
       fclose(file);
-      sprintf(path, "a.%08d.xdmf2", tstep);
+      sprintf(path, "a.%08ld.xdmf2", idump);
       file = fopen(path, "w");
       fprintf(file,
               "<Xdmf\n"
@@ -243,16 +246,17 @@ int main(int argc, char **argv) {
                 "            Seek=\"%ld\"\n"
                 "            Precision=\"8\"\n"
                 "            Dimensions=\"%ld %ld %ld\">\n"
-                "          %08d.raw\n"
+                "          %08ld.raw\n"
                 "        </DataItem>\n"
                 "      </Attribute>\n",
-                list[ivar].name, offset, n, n, n, tstep);
+                list[ivar].name, offset, n, n, n, idump);
         offset += n3 * sizeof(double);
       }
       fprintf(file, "    </Grid>\n"
                     "  </Domain>\n"
                     "</Xdmf>\n");
       fclose(file);
+      idump++;
     }
     if (t > T)
       break;
