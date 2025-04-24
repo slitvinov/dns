@@ -16,7 +16,7 @@ static void c2r(fftw_plan fplan, long n3f, fftw_complex *hat, double *real,
   memcpy(work, hat, n3f * sizeof(fftw_complex));
   fftw_execute_dft_c2r(fplan, work, real);
 }
-static double mag(fftw_complex z) {
+static double cabs2(fftw_complex z) {
   return creal(z) * creal(z) + cimag(z) * cimag(z);
 }
 int main(int argc, char **argv) {
@@ -128,7 +128,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "dns: error: fail to read '%s'\n", input_path);
     exit(1);
   }
-  dt = 0.001;
+  dt = 0.01;
   L = 2 * pi;
   dx = L / n;
   invn3 = 1.0 / n3;
@@ -200,8 +200,8 @@ int main(int argc, char **argv) {
       energy = 0.0;
       Omega = 0.0;
       for (k = 0; k < n3f; k++) {
-        energy += mag(U_hat[k]) + mag(V_hat[k]) + mag(W_hat[k]);
-        Omega += kk[k] * (mag(U_hat[k]) + mag(V_hat[k]) + mag(W_hat[k]));
+        energy += cabs2(U_hat[k]) + cabs2(V_hat[k]) + cabs2(W_hat[k]);
+        Omega += kk[k] * (cabs2(U_hat[k]) + cabs2(V_hat[k]) + cabs2(W_hat[k]));
       }
       energy *= invn3 * invn3;
       Omega *= invn3 * invn3;
