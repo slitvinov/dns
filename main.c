@@ -388,7 +388,7 @@ int main(int argc, char **argv) {
       for (long i = 0; i < n; i++)
         for (long j = 0; j < n; j++)
           for (long k = 0; k < nf; k++) {
-            long l = (i * n + j) * nf + k;
+            long l = (i * n + j) * nf + k; /* TODO */
             P_hat[l] =
                 kk[l] > 0
                     ? (dU[l] * kx[i] + dV[l] * kx[j] + dW[l] * kz[k]) / kk[l]
