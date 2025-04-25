@@ -18,8 +18,7 @@ $ ./dns -i tgv.raw -t 10 -n 0.01 -s 0.01
         ...
 </pre>
 
-<pre>
-$ ./dns -h
+```
 Usage: dns [-v] [-d] -i <input.raw> -n <viscosity> -t <end time> -s <time step>
 
 Options:
@@ -33,7 +32,7 @@ Options:
 
 Example:
   dns -i tgv.raw -n 0.01 -t 1.0 -s 0.001 -v
-</pre>
+```
 
 <h3>Validataion</h2>
 
