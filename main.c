@@ -243,8 +243,7 @@ int main(int argc, char **argv) {
     for (long j = 0; j < n; j++)
       for (long k = 0; k < nf; k++) {
         long l = (i * n + j) * nf + k;
-        double k2 = kx[i] * kx[i] + kx[j] * kx[j] + kz[k] * kz[k];
-        kk[l] = k2 > 0 ? k2 : 1;
+        kk[l] = kx[i] * kx[i] + kx[j] * kx[j] + kz[k] * kz[k];
       }
 
   fftw_execute_dft_r2c(fplan, U, U_hat);
@@ -390,7 +389,10 @@ int main(int argc, char **argv) {
         for (long j = 0; j < n; j++)
           for (long k = 0; k < nf; k++) {
             long l = (i * n + j) * nf + k;
-            P_hat[l] = (dU[l] * kx[i] + dV[l] * kx[j] + dW[l] * kz[k]) / kk[l];
+            P_hat[l] =
+                kk[l] > 0
+                    ? (dU[l] * kx[i] + dV[l] * kx[j] + dW[l] * kz[k]) / kk[l]
+                    : 0.0;
             dU[l] -= P_hat[l] * kx[i] + nu * dt * kk[l] * U_hat[l];
             dV[l] -= P_hat[l] * kx[j] + nu * dt * kk[l] * V_hat[l];
             dW[l] -= P_hat[l] * kz[k] + nu * dt * kk[l] * W_hat[l];
