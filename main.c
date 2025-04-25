@@ -220,7 +220,7 @@ int main(int argc, char **argv) {
   for (i = -n / 2; i < 0; i++)
     kx[i + n] = i;
   kmax = 2. / 3. * (n / 2 + 1);
-  for (i = l = 00; i < n; i++)
+  for (i = l = 0; i < n; i++)
     for (j = 0; j < n; j++)
       for (k = 0; k < nf; k++, l++)
         dealias[l] = (fabs(kx[i]) < kmax) && (fabs(kx[j]) < kmax) &&
