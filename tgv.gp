@@ -1,5 +1,5 @@
 list="0100 0200 0400 0800 1600 3000"
-set term svg size 1200, 1200 font 'arial,30'
+set term svg size 1200, 1200 font 'arial,20'
 set output "img/tgv.svg"
 set key off
 set size sq
