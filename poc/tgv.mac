@@ -1,0 +1,9 @@
+L: 2 * %pi;
+
+int3(e)::=buildq([e], integrate(integrate(integrate(e, 'x, -L, L), 'y, -L, L), 'z, -L, L));
+int3(1);
+
+U: sin(x) * cos(y) * cos(z);
+V: -cos(x) * sin(y) * cos(z);
+
+int3((U^2 + V^2)/2)/int3(1);
