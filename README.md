@@ -1,6 +1,7 @@
 <h2>Build</h2>
 
-Serial
+Compile prepear initial conditions and run. Outputs step, time,
+energy, and enthropy.
 <pre>
 $ ./tgv.py -l 6 -o tgv.raw
 $ c99 main.c -O2 -g -lfftw3 -lm
@@ -14,17 +15,6 @@ $ ./a.out -i tgv.raw -t 10 -n 0.01
         60  6.0000000000000031e-01  1.2052716417583942e-01  3.7482625233875647e-01
         70  7.0000000000000040e-01  1.1977551493310098e-01  3.7724338978315803e-01
         ...
-</pre>
-
-with MPI
-<pre>
-$ mpicc mpi/main.c -lfftw3_mpi -lfftw3 -O2 -g -lm
-$ mpiexec ./a.out
-eng: 1.2499062522321387e-01
-eng: 1.2498125036872199e-01
-eng: 1.2497187465530142e-01
-eng: 1.2496249730189801e-01
-eng: 1.2495311752707980e-01
 </pre>
 
 <h3>Validataion</h2>
