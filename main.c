@@ -14,6 +14,12 @@ enum { nvars = 4 };
 static const double pi = 3.141592653589793238;
 static const double a[] = {1 / 6.0, 1 / 3.0, 1 / 3.0, 1 / 6.0};
 static const double b[] = {0.5, 0.5, 1.0};
+static void parallel_loop(void *(*work)(char *), char *jobdata, size_t elsize,
+                          int njobs, void *data) {
+#pragma omp parallel for
+  for (int i = 0; i < njobs; ++i)
+    work(jobdata + elsize * i);
+}
 static void c2r(fftw_plan fplan, long n3f, fftw_complex *hat, double *real,
                 fftw_complex *work) {
   long i;
@@ -152,6 +158,7 @@ int main(int argc, char **argv) {
   fftw_plan_with_nthreads(omp_get_max_threads());
   if (Verbose)
     fprintf(stderr, "dns: omp_get_max_threads: %d\n", omp_get_max_threads());
+  fftw_threads_set_callback(parallel_loop, NULL);
 #endif
   fseek(file, 0, SEEK_END);
   offset = ftell(file);
