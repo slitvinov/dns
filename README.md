@@ -30,7 +30,6 @@ eng: 1.2495311752707980e-01
 <h3>Validataion</h2>
 
 <p align="center"><img src="img/tgv.svg" width=600></p>
-
 Figure: Energy dissipation rate vs. time for the Taylor–Green
 vortex. Reference data (points) from Brachet et al. is shown alongside
 simulation results (lines). From top to bottom at time = 0: Re = 3000,
