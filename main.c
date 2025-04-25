@@ -4,6 +4,7 @@
 #include <fenv.h>
 #include <fftw3.h>
 #include <math.h>
+#include <omp.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -136,6 +137,11 @@ int main(int argc, char **argv) {
     fprintf(stderr, "dns: error: fail to open '%s'\n", input_path);
     exit(1);
   }
+  fftw_init_threads();
+  fftw_plan_with_nthreads(omp_get_max_threads());
+  if (Verbose)
+    fprintf(stderr, "dns: omp_get_max_threads: %d\n", omp_get_max_threads());
+
   fseek(file, 0, SEEK_END);
   offset = ftell(file);
   rewind(file);
@@ -375,7 +381,7 @@ int main(int argc, char **argv) {
     t += dt;
     tstep++;
   }
-
+  fftw_cleanup_threads();
   fftw_destroy_plan(fplan);
   fftw_destroy_plan(bplan);
   fftw_free(CU);
