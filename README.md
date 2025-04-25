@@ -29,7 +29,7 @@ eng: 1.2495311752707980e-01
 
 <h3>Validataion</h2>
 
-<img src="img/tgv.svg" width=600 align="center">
+<p align="center"><img src="img/tgv.svg" width=600></p>
 
 <h2>References</h2>
 
