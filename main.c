@@ -46,10 +46,20 @@ int main(int argc, char **argv) {
   while (*++argv != NULL && argv[0][0] == '-') {
     switch (argv[0][1]) {
     case 'h':
-      fprintf(stderr,
-              "Usage: dns [-v] [-d] -i input.raw -n viscosity -t <end time> -s <time step>\n\n"
-              "Example:\n"
-              "  dns -i input.raw -v -m 0.1 -t 1.0\n");
+      fprintf(stderr, "Usage: dns [-v] [-d] -i <input.raw> -n <viscosity> -t "
+                      "<end time> -s <time step>\n"
+                      "\n"
+                      "Options:\n"
+                      "  -i <input.raw>    Input file\n"
+                      "  -n <viscosity>    Viscosity\n"
+                      "  -t <end time>     End time\n"
+                      "  -s <time step>    Time step\n"
+                      "  -v                Verbose output\n"
+                      "  -d                Dump snapshots\n"
+                      "  -h                Show this help message\n"
+                      "\n"
+                      "Example:\n"
+                      "  dns -i tgv.raw -n 0.01 -t 1.0 -s 0.001 -v\n");
       exit(1);
     case 'v':
       Verbose = 1;
@@ -92,7 +102,7 @@ int main(int argc, char **argv) {
     case 't':
       argv++;
       if (*argv == NULL) {
-        fprintf(stderr, "dns: error: -i needs an argument\n");
+        fprintf(stderr, "dns: error: -t needs an argument\n");
         exit(1);
       }
       T = strtod(*argv, &end);

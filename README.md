@@ -19,11 +19,20 @@ $ ./dns -i tgv.raw -t 10 -n 0.01 -s 0.01
 </pre>
 
 <pre>
-$ ./a.out  -h
-Usage: dns [-v] [-d] -i input.raw -n viscosity -t <end time>
+$ ./dns -h
+Usage: dns [-v] [-d] -i <input.raw> -n <viscosity> -t <end time> -s <time step>
+
+Options:
+  -i <input.raw>    Input file
+  -n <viscosity>    Viscosity
+  -t <end time>     End time
+  -s <time step>    Time step
+  -v                Verbose output
+  -d                Dump snapshots
+  -h                Show this help message
 
 Example:
-  dns -i input.raw -v -m 0.1 -t 1.0
+  dns -i tgv.raw -n 0.01 -t 1.0 -s 0.001 -v
 </pre>
 
 <h3>Validataion</h2>
