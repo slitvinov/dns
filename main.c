@@ -4,9 +4,11 @@
 #include <fenv.h>
 #include <fftw3.h>
 #include <math.h>
-#include <omp.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 enum { nvars = 4 };
 static const double pi = 3.141592653589793238;
@@ -61,6 +63,10 @@ int main(int argc, char **argv) {
                       "\n"
                       "Example:\n"
                       "  dns -i tgv.raw -n 0.01 -t 1.0 -s 0.001 -v\n");
+#ifdef _OPENMP
+      fprintf(stderr, "\nBuild Info:\n"
+                      "  OpenMP is enabled.\n");
+#endif
       exit(1);
     case 'v':
       Verbose = 1;
@@ -137,10 +143,13 @@ int main(int argc, char **argv) {
     fprintf(stderr, "dns: error: fail to open '%s'\n", input_path);
     exit(1);
   }
+
+#ifdef _OPENMP
   fftw_init_threads();
   fftw_plan_with_nthreads(omp_get_max_threads());
   if (Verbose)
     fprintf(stderr, "dns: omp_get_max_threads: %d\n", omp_get_max_threads());
+#endif
 
   fseek(file, 0, SEEK_END);
   offset = ftell(file);
@@ -381,7 +390,9 @@ int main(int argc, char **argv) {
     t += dt;
     tstep++;
   }
+#ifdef _OPENMP
   fftw_cleanup_threads();
+#endif
   fftw_destroy_plan(fplan);
   fftw_destroy_plan(bplan);
   fftw_free(CU);
