@@ -48,7 +48,7 @@ int main(int argc, char **argv) {
       fprintf(stderr,
               "Usage: dns [-v] [-d] -i input.raw -n viscosity -t <end time>\n\n"
               "Example:\n"
-              "  dns -i input.raw -m 0.1 -t 1.0\n\n");
+              "  dns -i input.raw -v -m 0.1 -t 1.0\n");
       exit(1);
     case 'v':
       Verbose = 1;
