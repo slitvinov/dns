@@ -220,15 +220,20 @@ int main(int argc, char **argv) {
   for (i = -n / 2; i < 0; i++)
     kx[i + n] = i;
   kmax = 2. / 3. * (n / 2 + 1);
-  for (i = l = 0; i < n; i++)
+#pragma omp parallel for collapse(3) private(i,j,k,l)
+  for (i = 0; i < n; i++)
     for (j = 0; j < n; j++)
-      for (k = 0; k < nf; k++, l++)
+      for (k = 0; k < nf; k++) {
+        l = (i * n + j) * nf + k;
         dealias[l] = (fabs(kx[i]) < kmax) && (fabs(kx[j]) < kmax) &&
                      (fabs(kz[k]) < kmax);
+      }
 
-  for (i = l = 0; i < n; i++)
+#pragma omp parallel for collapse(3) private(i,j,k,l,k2)
+  for (i = 0; i < n; i++)
     for (j = 0; j < n; j++)
-      for (k = 0; k < nf; k++, l++) {
+      for (k = 0; k < nf; k++) {
+        l = (i * n + j) * nf + k;
         k2 = kx[i] * kx[i] + kx[j] * kx[j] + kz[k] * kz[k];
         kk[l] = k2 > 0 ? k2 : 1;
       }
@@ -244,6 +249,7 @@ int main(int argc, char **argv) {
     if (tstep % 10 == 0) {
       energy = 0.0;
       Omega = 0.0;
+#pragma omp parallel for reduction(+:energy, Omega)
       for (k = 0; k < n3f; k++) {
         energy += cabs2(U_hat[k]) + cabs2(V_hat[k]) + cabs2(W_hat[k]);
         Omega += kk[k] * (cabs2(U_hat[k]) + cabs2(V_hat[k]) + cabs2(W_hat[k]));
@@ -258,6 +264,7 @@ int main(int argc, char **argv) {
         for (ivar = 0; ivar < sizeof list / sizeof *list; ivar++) {
           memcpy(dump_hat, list[ivar].var, n3f * sizeof(fftw_complex));
           fftw_execute_dft_c2r(bplan, dump_hat, dump);
+#pragma omp parallel for
           for (i = 0; i < n3; i++)
             dump[i] *= invn3;
           fwrite(dump, n3, sizeof(double), file);
@@ -333,9 +340,11 @@ int main(int argc, char **argv) {
           W[k] *= invn3;
         }
       }
-      for (i = l = 0; i < n; i++)
+#pragma omp parallel for collapse(3) private(i,j,k,l)
+      for (i = 0; i < n; i++)
         for (j = 0; j < n; j++)
-          for (k = 0; k < nf; k++, l++) {
+          for (k = 0; k < nf; k++) {
+            l = (i * n + j) * nf + k;
             curlZ[l] = I * (kx[i] * V_hat[l] - kx[j] * U_hat[l]);
             curlY[l] = I * (kz[k] * U_hat[l] - kx[i] * W_hat[l]);
             curlX[l] = I * (kx[j] * W_hat[l] - kz[k] * V_hat[l]);
@@ -343,11 +352,13 @@ int main(int argc, char **argv) {
       fftw_execute_dft_c2r(bplan, curlX, CU);
       fftw_execute_dft_c2r(bplan, curlY, CV);
       fftw_execute_dft_c2r(bplan, curlZ, CW);
+#pragma omp parallel for
       for (k = 0; k < n3; k++) {
         CU[k] *= invn3;
         CV[k] *= invn3;
         CW[k] *= invn3;
       }
+#pragma omp parallel for
       for (k = 0; k < n3; k++) {
         U_tmp[k] = V[k] * CW[k] - W[k] * CV[k];
         V_tmp[k] = W[k] * CU[k] - U[k] * CW[k];
@@ -356,28 +367,31 @@ int main(int argc, char **argv) {
       fftw_execute_dft_r2c(fplan, U_tmp, dU);
       fftw_execute_dft_r2c(fplan, V_tmp, dV);
       fftw_execute_dft_r2c(fplan, W_tmp, dW);
-
+#pragma omp parallel for
       for (k = 0; k < n3f; k++) {
         dU[k] *= dealias[k] * dt;
         dV[k] *= dealias[k] * dt;
         dW[k] *= dealias[k] * dt;
       }
-      for (i = l = 0; i < n; i++)
+#pragma omp parallel for collapse(3) private(i,j,k,l)
+      for (i = 0; i < n; i++)
         for (j = 0; j < n; j++)
-          for (k = 0; k < nf; k++, l++) {
+          for (k = 0; k < nf; k++) {
+            l = (i * n + j) * nf + k;
             P_hat[l] = (dU[l] * kx[i] + dV[l] * kx[j] + dW[l] * kz[k]) / kk[l];
             dU[l] -= P_hat[l] * kx[i] + nu * dt * kk[l] * U_hat[l];
             dV[l] -= P_hat[l] * kx[j] + nu * dt * kk[l] * V_hat[l];
             dW[l] -= P_hat[l] * kz[k] + nu * dt * kk[l] * W_hat[l];
           }
-
       if (rk < 3) {
+#pragma omp parallel for
         for (k = 0; k < n3f; k++) {
           U_hat[k] = U_hat0[k] + b[rk] * dU[k];
           V_hat[k] = V_hat0[k] + b[rk] * dV[k];
           W_hat[k] = W_hat0[k] + b[rk] * dW[k];
         }
       }
+#pragma omp parallel for
       for (k = 0; k < n3f; ++k) {
         U_hat1[k] += a[rk] * dU[k];
         V_hat1[k] += a[rk] * dV[k];
