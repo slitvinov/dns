@@ -333,13 +333,13 @@ int main(int argc, char **argv) {
     if (t > T)
       break;
 #pragma omp parallel for
-    for (i = 0; i < n3f; i++) {
-      U_hat0[i] = U_hat[i];
-      V_hat0[i] = V_hat[i];
-      W_hat0[i] = W_hat[i];
-      U_hat1[i] = U_hat[i];
-      V_hat1[i] = V_hat[i];
-      W_hat1[i] = W_hat[i];
+    for (k = 0; k < n3f; i++) {
+      U_hat0[k] = U_hat[k];
+      V_hat0[k] = V_hat[k];
+      W_hat0[k] = W_hat[k];
+      U_hat1[k] = U_hat[k];
+      V_hat1[k] = V_hat[k];
+      W_hat1[k] = W_hat[k];
     }
     for (rk = 0; rk < 4; rk++) {
       if (rk > 0) {
@@ -410,9 +410,12 @@ int main(int argc, char **argv) {
         W_hat1[k] += a[rk] * dW[k];
       }
     }
-    memcpy(U_hat, U_hat1, sizeof(fftw_complex) * n3f);
-    memcpy(V_hat, V_hat1, sizeof(fftw_complex) * n3f);
-    memcpy(W_hat, W_hat1, sizeof(fftw_complex) * n3f);
+#pragma omp parallel for
+    for (k = 0; k < n3; k++) {
+      U_hat[k] = U_hat1[k];
+      V_hat[k] = V_hat1[k];
+      W_hat[k] = W_hat1[k];
+    }
     t += dt;
     tstep++;
   }
