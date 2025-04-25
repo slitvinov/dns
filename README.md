@@ -4,6 +4,7 @@ Compile prepear initial conditions and run. Outputs step, time,
 energy, and enthropy.
 <pre>
 $ ./tgv.py -l 6 -o tgv.raw
+$ tgv.py: n=64
 $ c99 main.c -O2 -g -lfftw3 -lm
 $ ./a.out -i tgv.raw -t 10 -n 0.01
          0  0.0000000000000000e+00  1.2500000000000000e-01  3.7500000000000000e-01
@@ -15,6 +16,14 @@ $ ./a.out -i tgv.raw -t 10 -n 0.01
         60  6.0000000000000031e-01  1.2052716417583942e-01  3.7482625233875647e-01
         70  7.0000000000000040e-01  1.1977551493310098e-01  3.7724338978315803e-01
         ...
+</pre>
+
+<pre>
+$ ./a.out  -h
+Usage: dns [-v] [-d] -i input.raw -n viscosity -t <end time>
+
+Example:
+  dns -i input.raw -v -m 0.1 -t 1.0
 </pre>
 
 <h3>Validataion</h2>
