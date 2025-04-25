@@ -411,7 +411,7 @@ int main(int argc, char **argv) {
       }
     }
 #pragma omp parallel for
-    for (long k = 0; k < n3; k++) {
+    for (long k = 0; k < n3f; k++) {
       U_hat[k] = U_hat1[k];
       V_hat[k] = V_hat1[k];
       W_hat[k] = W_hat1[k];
