@@ -16,7 +16,10 @@ static const double a[] = {1 / 6.0, 1 / 3.0, 1 / 3.0, 1 / 6.0};
 static const double b[] = {0.5, 0.5, 1.0};
 static void c2r(fftw_plan fplan, long n3f, fftw_complex *hat, double *real,
                 fftw_complex *work) {
-  memcpy(work, hat, n3f * sizeof(fftw_complex));
+  long i;
+#pragma omp parallel for
+  for (i = 0; i < n3f; i++)
+    work[i] = hat[i];
   fftw_execute_dft_c2r(fplan, work, real);
 }
 static double cabs2(fftw_complex z) {
@@ -150,7 +153,6 @@ int main(int argc, char **argv) {
   if (Verbose)
     fprintf(stderr, "dns: omp_get_max_threads: %d\n", omp_get_max_threads());
 #endif
-
   fseek(file, 0, SEEK_END);
   offset = ftell(file);
   rewind(file);
@@ -220,7 +222,7 @@ int main(int argc, char **argv) {
   for (i = -n / 2; i < 0; i++)
     kx[i + n] = i;
   kmax = 2. / 3. * (n / 2 + 1);
-#pragma omp parallel for collapse(3) private(i,j,k,l)
+#pragma omp parallel for collapse(3) private(i, j, k, l)
   for (i = 0; i < n; i++)
     for (j = 0; j < n; j++)
       for (k = 0; k < nf; k++) {
@@ -229,7 +231,7 @@ int main(int argc, char **argv) {
                      (fabs(kz[k]) < kmax);
       }
 
-#pragma omp parallel for collapse(3) private(i,j,k,l,k2)
+#pragma omp parallel for collapse(3) private(i, j, k, l, k2)
   for (i = 0; i < n; i++)
     for (j = 0; j < n; j++)
       for (k = 0; k < nf; k++) {
@@ -249,7 +251,7 @@ int main(int argc, char **argv) {
     if (tstep % 10 == 0) {
       energy = 0.0;
       Omega = 0.0;
-#pragma omp parallel for reduction(+:energy, Omega)
+#pragma omp parallel for reduction(+ : energy, Omega)
       for (k = 0; k < n3f; k++) {
         energy += cabs2(U_hat[k]) + cabs2(V_hat[k]) + cabs2(W_hat[k]);
         Omega += kk[k] * (cabs2(U_hat[k]) + cabs2(V_hat[k]) + cabs2(W_hat[k]));
@@ -323,12 +325,15 @@ int main(int argc, char **argv) {
     }
     if (t > T)
       break;
-    memcpy(U_hat0, U_hat, sizeof(fftw_complex) * n3f);
-    memcpy(V_hat0, V_hat, sizeof(fftw_complex) * n3f);
-    memcpy(W_hat0, W_hat, sizeof(fftw_complex) * n3f);
-    memcpy(U_hat1, U_hat, sizeof(fftw_complex) * n3f);
-    memcpy(V_hat1, V_hat, sizeof(fftw_complex) * n3f);
-    memcpy(W_hat1, W_hat, sizeof(fftw_complex) * n3f);
+#pragma omp parallel for
+    for (i = 0; i < n3f; i++) {
+      U_hat0[i] = U_hat[i];
+      V_hat0[i] = V_hat[i];
+      W_hat0[i] = W_hat[i];
+      U_hat1[i] = U_hat[i];
+      V_hat1[i] = V_hat[i];
+      W_hat1[i] = W_hat[i];
+    }
     for (rk = 0; rk < 4; rk++) {
       if (rk > 0) {
         c2r(bplan, n3f, U_hat, U, curlX); /* dump work space */
@@ -340,7 +345,7 @@ int main(int argc, char **argv) {
           W[k] *= invn3;
         }
       }
-#pragma omp parallel for collapse(3) private(i,j,k,l)
+#pragma omp parallel for collapse(3) private(i, j, k, l)
       for (i = 0; i < n; i++)
         for (j = 0; j < n; j++)
           for (k = 0; k < nf; k++) {
@@ -373,7 +378,7 @@ int main(int argc, char **argv) {
         dV[k] *= dealias[k] * dt;
         dW[k] *= dealias[k] * dt;
       }
-#pragma omp parallel for collapse(3) private(i,j,k,l)
+#pragma omp parallel for collapse(3) private(i, j, k, l)
       for (i = 0; i < n; i++)
         for (j = 0; j < n; j++)
           for (k = 0; k < nf; k++) {
@@ -404,11 +409,11 @@ int main(int argc, char **argv) {
     t += dt;
     tstep++;
   }
+  fftw_destroy_plan(fplan);
+  fftw_destroy_plan(bplan);
 #ifdef _OPENMP
   fftw_cleanup_threads();
 #endif
-  fftw_destroy_plan(fplan);
-  fftw_destroy_plan(bplan);
   fftw_free(CU);
   fftw_free(curlX);
   fftw_free(curlY);
