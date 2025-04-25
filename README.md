@@ -1,12 +1,12 @@
 <h2>Build</h2>
 
-Compile prepear initial conditions and run. Outputs step, time,
-energy, and enthropy.
+Compile, prepear initial conditions and run. Outputs step, time,
+energy, and entropy.
 <pre>
+$ c99 main.c -O2 -g -lfftw3 -lm -o dns
 $ ./tgv.py -l 6 -o tgv.raw
 $ tgv.py: n=64
-$ c99 main.c -O2 -g -lfftw3 -lm
-$ ./a.out -i tgv.raw -t 10 -n 0.01
+$ ./dns -i tgv.raw -t 10 -n 0.01 -s 0.01
          0  0.0000000000000000e+00  1.2500000000000000e-01  3.7500000000000000e-01
         10  9.9999999999999992e-02  1.2425198809829003e-01  3.7314144557524406e-01
         20  2.0000000000000004e-01  1.2350692709732673e-01  3.7204458637899375e-01

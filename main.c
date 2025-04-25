@@ -38,6 +38,7 @@ int main(int argc, char **argv) {
   feenableexcept(FE_DIVBYZERO | FE_INVALID | FE_OVERFLOW);
 
   input_path = NULL;
+  dt = -1;
   T = 0;
   nu = -1;
   Verbose = 0;
@@ -46,7 +47,7 @@ int main(int argc, char **argv) {
     switch (argv[0][1]) {
     case 'h':
       fprintf(stderr,
-              "Usage: dns [-v] [-d] -i input.raw -n viscosity -t <end time>\n\n"
+              "Usage: dns [-v] [-d] -i input.raw -n viscosity -t <end time> -s <time step>\n\n"
               "Example:\n"
               "  dns -i input.raw -v -m 0.1 -t 1.0\n");
       exit(1);
@@ -76,6 +77,18 @@ int main(int argc, char **argv) {
         exit(1);
       }
       break;
+    case 's':
+      argv++;
+      if (*argv == NULL) {
+        fprintf(stderr, "dns: error: -s needs an argument\n");
+        exit(1);
+      }
+      dt = strtod(*argv, &end);
+      if (*end != '\0') {
+        fprintf(stderr, "dns: error: '%s' is not a number\n", *argv);
+        exit(1);
+      }
+      break;
     case 't':
       argv++;
       if (*argv == NULL) {
@@ -99,6 +112,10 @@ int main(int argc, char **argv) {
   }
   if (nu == -1) {
     fprintf(stderr, "dns: error: -n is not set or invalid\n");
+    exit(1);
+  }
+  if (dt == -1) {
+    fprintf(stderr, "dns: error: -s is not set or invalid\n");
     exit(1);
   }
   if (input_path == NULL) {
@@ -132,7 +149,6 @@ int main(int argc, char **argv) {
     fprintf(stderr, "dns: error: fail to read '%s'\n", input_path);
     exit(1);
   }
-  dt = 0.0025;
   L = 2 * pi;
   dx = L / n;
   invn3 = 1.0 / n3;
