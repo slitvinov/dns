@@ -39,8 +39,8 @@ Example:
 <p align="center"><img src="img/tgv.svg" width=600></p>
 Figure: Energy dissipation rate vs. time for the Taylor–Green
 vortex. Reference data (points) from Brachet et al. is shown alongside
-simulation results (lines). From top to bottom at time = 0: Re = 3000,
-1600, 800, 400, 200, 100.
+simulation results (lines). From top to bottom at time = 0: Re = 100,
+200, 400, 800, 1600, 3000.
 
 <h2>References</h2>
 
