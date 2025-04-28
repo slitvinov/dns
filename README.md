@@ -1,9 +1,9 @@
 <h2>Build</h2>
 
 Compile, prepear initial conditions and run. Outputs step, time,
-energy, and entropy.
+energy, and enstropy.
 <pre>
-$ c99 main.c -O2 -g -lfftw3 -lm -o dns
+$ c99 main.c -O2 -g -lfftw3 -lm -march=native -o dns
 $ ./tgv.py -l 6 -o tgv.raw
 $ tgv.py: n=64
 $ ./dns -i tgv.raw -t 10 -n 0.01 -s 0.01
