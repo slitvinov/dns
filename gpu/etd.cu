@@ -159,8 +159,8 @@ __device__ static void blocksum(int K, const double *v, double *s,
 }
 __global__ static void norms(long N1, long n3, long kcut, V u, V w,
                              double *out) {
-  __shared__ double s[4 * nthread];
-  double v[4] = {0, 0, 0, 0};
+  __shared__ double s[5 * nthread];
+  double v[5] = {0, 0, 0, 0, 0};
   for (long t = blockIdx.x * (long)blockDim.x + threadIdx.x; t < 2 * n3;
        t += (long)gridDim.x * blockDim.x) {
     int c = t / n3;
@@ -178,9 +178,11 @@ __global__ static void norms(long N1, long n3, long kcut, V u, V w,
       if (l / (N1 * N1) >= kcut - 1 || l / N1 % N1 >= kcut - 1 ||
           l % N1 >= kcut - 1)
         v[3] += su * x * x;
+      if (g[0] != 0 || g[1] != 0 || g[2] != 0)
+        v[4] += su * x * x / sqrt((double)(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]));
     }
   }
-  blocksum(4, v, s, out);
+  blocksum(5, v, s, out);
 }
 __global__ static void peaks(long n3, V U, V W, double *out) {
   __shared__ double s[2 * nthread];
@@ -243,7 +245,8 @@ __global__ static void moments(long N, long N1, long n3, const double *fe,
   }
   blocksum(9, m, s, out);
 }
-__global__ static void spectrum(long N1, long n3, long nb, V u, double *E) {
+__global__ static void spectrum(long N1, long n3, long nb, V u, V f,
+                                double *E) {
   long t = blockIdx.x * (long)blockDim.x + threadIdx.x;
   if (t >= 2 * n3)
     return;
@@ -251,15 +254,18 @@ __global__ static void spectrum(long N1, long n3, long nb, V u, double *E) {
   long l = t % n3, g[3] = {wavenumber(c, l / (N1 * N1)),
                            wavenumber(c, l / N1 % N1), wavenumber(c, l % N1)};
   long b = (long)(2 * sqrt((double)(g[0] * g[0] + g[1] * g[1] + g[2] * g[2])));
-  double e = 0;
+  double e = 0, tr = 0;
   for (int d = 0; d < 3; d++) {
     double su = 1;
     for (int q = 0; q < 3; q++)
       su *= q != d && g[q] == 0 ? 1 : 0.5;
     e += su * u.a[c][d][l] * u.a[c][d][l] / 2;
+    tr += su * u.a[c][d][l] * f.a[c][d][l];
   }
-  if (b < nb && e != 0)
+  if (b < nb && e != 0) {
     atomicAdd(&E[b], e);
+    atomicAdd(&E[nb + b], tr);
+  }
 }
 __global__ static void cross(int c, long n3, V U, V W, double *F0, double *F1,
                              double *F2) {
@@ -569,7 +575,9 @@ int main(int argc, char **argv) {
       double umax = 0, wmax = 0, Eface;
       norms<<<nblock, nthread>>>(N1, n3, kcut, u, w, dP);
       launched("norms");
-      collect(4, dP, P, sums);
+      collect(5, dP, P, sums);
+      double Ek = sums[0] / 2, eps = nu * sums[1], u2 = 2 * Ek / 3;
+      double Lint = M_PI / (2 * u2) * sums[4] / 2, lam = sqrt(10 * nu * Ek / eps);
       Eface = sums[3] / sums[0];
       physical(u);
       peaks<<<nblock, nthread>>>(n3, U, W, dP);
@@ -603,23 +611,25 @@ int main(int argc, char **argv) {
       printf(" % .6e % .6e % .6e % .6e", dt * umax * (2 * kcut + 1),
              sqrt(wmax), (2 * kcut + 1) * pow(nu * nu * nu / (nu * Omega), 0.25),
              Eface);
+      printf(" % .6e % .6e % .6e", u2 * sqrt(15 / (nu * eps)), lam, Lint);
       printf("\n");
       fflush(stdout);
     }
     if (ne > 0 && tstep % ne == 0) {
       long nb = 2 * (long)(sqrt(3.0) * (M + 1)) + 2;
-      double *E;
+      double *E, Pi;
       char path[FILENAME_MAX];
       FILE *file;
-      if ((E = (double *)malloc(nb * sizeof(double))) == NULL) {
+      if ((E = (double *)malloc(2 * nb * sizeof(double))) == NULL) {
         fprintf(stderr, "etd: error: malloc failed\n");
         exit(1);
       }
-      cuda(cudaMalloc(&dE, nb * sizeof(double)), "cudaMalloc");
-      cuda(cudaMemset(dE, 0, nb * sizeof(double)), "cudaMemset");
-      spectrum<<<grid(2 * n3), nthread>>>(N1, n3, nb, u, dE);
+      cuda(cudaMalloc(&dE, 2 * nb * sizeof(double)), "cudaMalloc");
+      cuda(cudaMemset(dE, 0, 2 * nb * sizeof(double)), "cudaMemset");
+      rhs(kcut, u, du);
+      spectrum<<<grid(2 * n3), nthread>>>(N1, n3, nb, u, du, dE);
       launched("spectrum");
-      cuda(cudaMemcpy(E, dE, nb * sizeof(double), cudaMemcpyDeviceToHost),
+      cuda(cudaMemcpy(E, dE, 2 * nb * sizeof(double), cudaMemcpyDeviceToHost),
            "cudaMemcpy");
       cuda(cudaFree(dE), "cudaFree");
       sprintf(path, "e.%08ld", tstep);
@@ -628,8 +638,12 @@ int main(int argc, char **argv) {
         exit(1);
       }
       fprintf(file, "# t = %.16e\n", t);
-      for (long b = 0; b < nb; b++)
-        fprintf(file, "%.1f %.16e\n", b / 2.0, E[b]);
+      Pi = 0;
+      for (long b = 0; b < nb; b++) {
+        Pi -= E[nb + b];
+        fprintf(file, "%.1f %.16e % .16e % .16e\n", b / 2.0, E[b], E[nb + b],
+                Pi);
+      }
       if (fclose(file) != 0) {
         fprintf(stderr, "etd: error: fail to close '%s'\n", path);
         exit(1);
