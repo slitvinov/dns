@@ -373,19 +373,72 @@
 		L1107.54,523.60 L1113.85,526.08 L1120.15,528.65 L1126.46,531.32 L1132.77,534.06 L1139.07,536.86 L1145.38,539.68 L1151.68,542.50
 		L1157.99,545.31  '/></g>
 	</g>
-	<g id="gnuplot_plot_19" ><title>Brachet et al. (1983)</title>
-<g fill="none" color="white" stroke="rgb(  0,   0,   0)" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
+	<g id="gnuplot_plot_19" ><title>n = 1024</title>
+<g fill="none" color="black" stroke="currentColor" stroke-width="3.00" stroke-linecap="butt" stroke-linejoin="miter">
+	<g transform="translate(457.00,189.01)" stroke="none" fill="black" font-family="arial" font-size="20.00"  text-anchor="end">
+		<text>n = 1024</text>
+	</g>
+</g>
+<g fill="none" color="black" stroke="currentColor" stroke-width="3.00" stroke-linecap="butt" stroke-linejoin="miter">
+	<path stroke='rgb(148, 103, 189)'  d='M471.00,182.51 L542.00,182.51 M149.00,873.54 L155.31,866.72 L161.61,859.96 L167.92,853.26 L174.22,846.63 L180.53,840.08
+		L186.84,833.62 L193.14,827.25 L199.45,820.97 L205.76,814.78 L212.06,808.70 L218.37,802.71 L224.67,796.82 L230.98,791.04
+		L237.29,785.37 L243.59,779.81 L249.90,774.36 L256.21,769.03 L262.51,763.82 L268.82,758.73 L275.12,753.75 L281.43,748.88
+		L287.74,744.11 L294.04,739.41 L300.35,734.78 L306.65,730.19 L312.96,725.62 L319.27,721.05 L325.57,716.45 L331.88,711.80
+		L338.19,707.07 L344.49,702.24 L350.80,697.28 L357.10,692.16 L363.41,686.86 L369.72,681.35 L376.02,675.63 L382.33,669.67
+		L388.64,663.48 L394.94,657.06 L401.25,650.42 L407.55,643.58 L413.86,636.57 L420.17,629.44 L426.47,622.21 L432.78,614.94
+		L439.08,607.70 L445.39,600.54 L451.70,593.51 L458.00,586.68 L464.31,580.11 L470.62,573.83 L476.92,567.90 L483.23,562.35
+		L489.53,557.20 L495.84,552.46 L502.15,548.14 L508.45,544.24 L514.76,540.74 L521.07,537.61 L527.37,534.84 L533.68,532.39
+		L539.98,530.24 L546.29,528.35 L552.60,526.70 L558.90,525.24 L565.21,523.95 L571.51,522.78 L577.82,521.70 L584.13,520.69
+		L590.43,519.74 L596.74,518.84 L603.05,518.00 L609.35,517.23 L615.66,516.56 L621.96,516.01 L628.27,515.59 L634.58,515.33
+		L640.88,515.25 L647.19,515.36 L653.49,515.68 L659.80,516.23 L666.11,517.04 L672.41,518.13 L678.72,519.52 L685.03,521.22
+		L691.33,523.23 L697.64,525.56 L703.94,528.21 L710.25,531.18 L716.56,534.48 L722.86,538.08 L729.17,542.00 L735.48,546.22
+		L741.78,550.73 L748.09,555.52 L754.39,560.58 L760.70,565.89 L767.01,571.45 L773.31,577.22 L779.62,583.19 L785.92,589.32
+		L792.23,595.57 L798.54,601.90 L804.84,608.26 L811.15,614.58 L817.46,620.80 L823.76,626.87 L830.07,632.72 L836.37,638.30
+		L842.68,643.58 L848.99,648.51 L855.29,653.09 L861.60,657.31 L867.91,661.16 L874.21,664.67 L880.52,667.86 L886.82,670.76
+		L893.13,673.39 L899.44,675.80 L905.74,678.02 L912.05,680.08 L918.35,682.00 L924.66,683.81 L930.97,685.53 L937.27,687.17
+		L943.58,688.76 L949.89,690.29 L956.19,691.79 L962.50,693.26 L968.80,694.72 L975.11,696.17 L981.42,697.62 L987.72,699.08
+		L994.03,700.54 L1000.34,702.03 L1006.64,703.53 L1012.95,705.06 L1019.25,706.61 L1025.56,708.19 L1031.87,709.80 L1038.17,711.44
+		L1044.48,713.11 L1050.78,714.80 L1057.09,716.50 L1063.40,718.21 L1069.70,719.91 L1076.01,721.59 L1082.32,723.24 L1088.62,724.86
+		L1094.93,726.43 L1101.23,727.96 L1107.54,729.48 L1113.85,731.02 L1120.15,732.60 L1126.46,734.28 L1132.77,736.10 L1139.07,738.06
+		L1145.38,740.11 L1151.68,742.14 L1157.99,744.01  '/></g>
+	</g>
+	<g id="gnuplot_plot_20"  fill="none"><title>gnuplot_plot_20</title>
+<g fill="none" color="black" stroke="currentColor" stroke-width="3.00" stroke-linecap="butt" stroke-linejoin="miter">
+	<path stroke='rgb(148, 103, 189)'  d='M149.00,923.47 L155.31,915.78 L161.61,907.93 L167.92,899.90 L174.22,891.68 L180.53,883.24 L186.84,874.56 L193.14,865.63
+		L199.45,856.45 L205.76,847.04 L212.06,837.40 L218.37,827.58 L224.67,817.58 L230.98,807.43 L237.29,797.16 L243.59,786.79
+		L249.90,776.32 L256.21,765.77 L262.51,755.15 L268.82,744.44 L275.12,733.62 L281.43,722.66 L287.74,711.49 L294.04,700.07
+		L300.35,688.31 L306.65,676.17 L312.96,663.62 L319.27,650.64 L325.57,637.22 L331.88,623.39 L338.19,609.14 L344.49,594.50
+		L350.80,579.50 L357.10,564.24 L363.41,548.87 L369.72,533.62 L376.02,518.73 L382.33,504.51 L388.64,491.21 L394.94,479.02
+		L401.25,467.92 L407.55,457.75 L413.86,448.27 L420.17,439.23 L426.47,430.45 L432.78,421.77 L439.08,413.07 L445.39,404.28
+		L451.70,395.44 L458.00,386.60 L464.31,377.83 L470.62,369.11 L476.92,360.39 L483.23,351.56 L489.53,342.55 L495.84,333.30
+		L502.15,323.79 L508.45,314.01 L514.76,303.96 L521.07,293.63 L527.37,283.04 L533.68,272.26 L539.98,261.50 L546.29,250.99
+		L552.60,240.93 L558.90,231.34 L565.21,222.20 L571.51,213.54 L577.82,205.42 L584.13,197.91 L590.43,191.13 L596.74,185.17
+		L603.05,180.11 L609.35,175.97 L615.66,172.73 L621.96,170.33 L628.27,168.73 L634.58,167.84 L640.88,167.61 L647.19,167.94
+		L653.49,168.79 L659.80,170.13 L666.11,171.93 L672.41,174.18 L678.72,176.84 L685.03,179.90 L691.33,183.38 L697.64,187.30
+		L703.94,191.72 L710.25,196.69 L716.56,202.23 L722.86,208.32 L729.17,214.94 L735.48,222.04 L741.78,229.52 L748.09,237.25
+		L754.39,245.09 L760.70,252.90 L767.01,260.60 L773.31,268.10 L779.62,275.36 L785.92,282.36 L792.23,289.07 L798.54,295.45
+		L804.84,301.49 L811.15,307.20 L817.46,312.63 L823.76,317.87 L830.07,323.01 L836.37,328.10 L842.68,333.20 L848.99,338.31
+		L855.29,343.45 L861.60,348.57 L867.91,353.67 L874.21,358.68 L880.52,363.56 L886.82,368.23 L893.13,372.66 L899.44,376.87
+		L905.74,381.15 L912.05,385.99 L918.35,391.95 L924.66,399.20 L930.97,406.88 L937.27,413.59 L943.58,419.37 L949.89,424.76
+		L956.19,430.03 L962.50,435.19 L968.80,440.04 L975.11,444.40 L981.42,448.19 L987.72,451.40 L994.03,454.09 L1000.34,456.33
+		L1006.64,458.20 L1012.95,459.79 L1019.25,461.16 L1025.56,462.37 L1031.87,463.46 L1038.17,464.48 L1044.48,465.44 L1050.78,466.37
+		L1057.09,467.33 L1063.40,468.35 L1069.70,469.50 L1076.01,470.86 L1082.32,472.48 L1088.62,474.40 L1094.93,476.61 L1101.23,479.11
+		L1107.54,481.85 L1113.85,484.82 L1120.15,488.01 L1126.46,491.40 L1132.77,494.97 L1139.07,498.69 L1145.38,502.52 L1151.68,506.43
+		L1157.99,510.38  '/></g>
+	</g>
+	<g id="gnuplot_plot_21" ><title>Brachet et al. (1983)</title>
+<g fill="none" color="white" stroke="rgb(148, 103, 189)" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 </g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
-	<g transform="translate(457.00,189.01)" stroke="none" fill="black" font-family="arial" font-size="20.00"  text-anchor="end">
+	<g transform="translate(457.00,219.01)" stroke="none" fill="black" font-family="arial" font-size="20.00"  text-anchor="end">
 		<text>Brachet et al. (1983)</text>
 	</g>
 </g>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
-	<use xlink:href='#gpPt5' transform='translate(506.50,182.51) scale(7.50)' color='rgb(153, 153, 153)'/>
+	<use xlink:href='#gpPt5' transform='translate(506.50,212.51) scale(7.50)' color='rgb(153, 153, 153)'/>
 </g>
 	</g>
-	<g id="gnuplot_plot_20"  fill="none"><title>gnuplot_plot_20</title>
+	<g id="gnuplot_plot_22"  fill="none"><title>gnuplot_plot_22</title>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<use xlink:href='#gpPt5' transform='translate(149.00,890.17) scale(7.50)' color='rgb(153, 153, 153)'/>
 	<use xlink:href='#gpPt5' transform='translate(199.45,915.90) scale(7.50)' color='rgb(153, 153, 153)'/>
@@ -396,7 +449,7 @@
 	<use xlink:href='#gpPt5' transform='translate(451.70,1049.29) scale(7.50)' color='rgb(153, 153, 153)'/>
 </g>
 	</g>
-	<g id="gnuplot_plot_21"  fill="none"><title>gnuplot_plot_21</title>
+	<g id="gnuplot_plot_23"  fill="none"><title>gnuplot_plot_23</title>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<use xlink:href='#gpPt5' transform='translate(149.00,820.41) scale(7.50)' color='rgb( 44, 160,  44)'/>
 	<use xlink:href='#gpPt5' transform='translate(199.45,817.91) scale(7.50)' color='rgb( 44, 160,  44)'/>
@@ -421,7 +474,7 @@
 	<use xlink:href='#gpPt5' transform='translate(1157.99,1008.71) scale(7.50)' color='rgb( 44, 160,  44)'/>
 </g>
 	</g>
-	<g id="gnuplot_plot_22"  fill="none"><title>gnuplot_plot_22</title>
+	<g id="gnuplot_plot_24"  fill="none"><title>gnuplot_plot_24</title>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<use xlink:href='#gpPt5' transform='translate(149.00,765.55) scale(7.50)' color='rgb( 44, 160,  44)'/>
 	<use xlink:href='#gpPt5' transform='translate(199.45,737.67) scale(7.50)' color='rgb( 44, 160,  44)'/>
@@ -446,7 +499,7 @@
 	<use xlink:href='#gpPt5' transform='translate(1157.99,897.61) scale(7.50)' color='rgb( 44, 160,  44)'/>
 </g>
 	</g>
-	<g id="gnuplot_plot_23"  fill="none"><title>gnuplot_plot_23</title>
+	<g id="gnuplot_plot_25"  fill="none"><title>gnuplot_plot_25</title>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<use xlink:href='#gpPt5' transform='translate(149.00,870.35) scale(7.50)' color='rgb(214,  39,  40)'/>
 	<use xlink:href='#gpPt5' transform='translate(199.45,821.63) scale(7.50)' color='rgb(214,  39,  40)'/>
@@ -471,7 +524,7 @@
 	<use xlink:href='#gpPt5' transform='translate(1157.99,709.68) scale(7.50)' color='rgb(214,  39,  40)'/>
 </g>
 	</g>
-	<g id="gnuplot_plot_24"  fill="none"><title>gnuplot_plot_24</title>
+	<g id="gnuplot_plot_26"  fill="none"><title>gnuplot_plot_26</title>
 <g fill="none" color="black" stroke="currentColor" stroke-width="1.00" stroke-linecap="butt" stroke-linejoin="miter">
 	<use xlink:href='#gpPt5' transform='translate(149.00,894.72) scale(7.50)' color='rgb(214,  39,  40)'/>
 	<use xlink:href='#gpPt5' transform='translate(199.45,824.61) scale(7.50)' color='rgb(214,  39,  40)'/>

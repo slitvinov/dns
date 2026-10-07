@@ -5,3 +5,5 @@
 /refs/
 /mpi/fourier
 /mpi/tg
+/gpu/fourier
+/gpu/tg

@@ -273,7 +273,7 @@ int main(int argc, char **argv) {
       fflush(stdout);
     }
     if (ne > 0 && tstep % ne == 0) {
-      long nb = 2 * (long)(sqrt(3.0) * M) + 2;
+      long nb = 2 * (long)(sqrt(3.0) * (M + 1)) + 2;
       double *E = calloc(nb, sizeof(double));
       char path[FILENAME_MAX];
       FILE *file;
