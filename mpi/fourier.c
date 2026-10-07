@@ -221,7 +221,8 @@ int main(int argc, char **argv) {
       MPI_Allreduce(MPI_IN_PLACE, sum, 2, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
       if (rank == 0) {
         printf("% 10ld % .16e % .16e % .16e\n", tstep, t, sum[0], sum[1]);
-        fflush(stdout);
+        if (fflush(stdout) != 0 || ferror(stdout))
+          fail("fail to write", "stdout");
       }
       if (Dump) {
         sprintf(path, "%08ld.raw", tstep);
@@ -289,8 +290,8 @@ int main(int argc, char **argv) {
           fprintf(file, "    </Grid>\n"
                         "  </Domain>\n"
                         "</Xdmf>\n");
-          if (fclose(file) != 0)
-            fail("fail to close", path);
+          if (ferror(file) || fclose(file) != 0)
+            fail("fail to write", path);
         }
         idump++;
       }

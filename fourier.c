@@ -267,7 +267,10 @@ int main(int argc, char **argv) {
       energy *= invn3 * invn3;
       Omega *= invn3 * invn3;
       printf("% 10ld % .16e % .16Le % .16Le\n", tstep, t, energy, Omega);
-      fflush(stdout);
+      if (fflush(stdout) != 0 || ferror(stdout)) {
+        fprintf(stderr, "fourier: error: fail to write stdout\n");
+        exit(1);
+      }
       if (Dump) {
         sprintf(path, "%08ld.raw", tstep);
         if ((file = fopen(path, "w")) == NULL) {
@@ -285,8 +288,8 @@ int main(int argc, char **argv) {
             exit(1);
           }
         }
-        if (fclose(file) != 0) {
-          fprintf(stderr, "fourier: error: fail to close '%s'\n", path);
+        if (ferror(file) || fclose(file) != 0) {
+          fprintf(stderr, "fourier: error: fail to write '%s'\n", path);
           exit(1);
         }
         sprintf(path, "a.%08ld.xdmf2", idump);
@@ -339,8 +342,8 @@ int main(int argc, char **argv) {
         fprintf(file, "    </Grid>\n"
                       "  </Domain>\n"
                       "</Xdmf>\n");
-        if (fclose(file) != 0) {
-          fprintf(stderr, "fourier: error: fail to close '%s'\n", path);
+        if (ferror(file) || fclose(file) != 0) {
+          fprintf(stderr, "fourier: error: fail to write '%s'\n", path);
           exit(1);
         }
         idump++;

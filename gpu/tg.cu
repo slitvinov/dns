@@ -471,7 +471,10 @@ int main(int argc, char **argv) {
         printf(" % .6e", S[n]);
       printf(" % .6e % .6e % .16e", Sb[4], Sb[6], Pal / 2);
       printf("\n");
-      fflush(stdout);
+      if (fflush(stdout) != 0 || ferror(stdout)) {
+        fprintf(stderr, "tg: error: fail to write stdout\n");
+        exit(1);
+      }
     }
     if (ne > 0 && tstep % ne == 0) {
       long nb = 2 * (long)(sqrt(3.0) * (M + 1)) + 2;
@@ -497,8 +500,8 @@ int main(int argc, char **argv) {
       fprintf(file, "# t = %.16e\n", t);
       for (long b = 0; b < nb; b++)
         fprintf(file, "%.1f %.16e\n", b / 2.0, E[b]);
-      if (fclose(file) != 0) {
-        fprintf(stderr, "tg: error: fail to close '%s'\n", path);
+      if (ferror(file) || fclose(file) != 0) {
+        fprintf(stderr, "tg: error: fail to write '%s'\n", path);
         exit(1);
       }
       free(E);
@@ -526,8 +529,8 @@ int main(int argc, char **argv) {
             exit(1);
           }
         }
-      if (fclose(file) != 0) {
-        fprintf(stderr, "tg: error: fail to close '%s'\n", path);
+      if (ferror(file) || fclose(file) != 0) {
+        fprintf(stderr, "tg: error: fail to write '%s'\n", path);
         exit(1);
       }
     }

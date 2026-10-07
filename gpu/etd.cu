@@ -604,16 +604,21 @@ int main(int argc, char **argv) {
           (q == 0 ? S : Sb)[n] = (n % 2 ? -1 : 1) * (sums[n] / sums[0]) /
                                  pow(sums[2] / sums[0], n / 2.0);
       }
-      printf("% 10ld % .16e % .16e % .16e", tstep, t, energy / 2, Omega / 2);
-      for (int n = 3; n < 9; n++)
-        printf(" % .6e", S[n]);
-      printf(" % .6e % .6e % .16e", Sb[4], Sb[6], Pal / 2);
-      printf(" % .6e % .6e % .6e % .6e", dt * umax * (2 * kcut + 1),
-             sqrt(wmax), (2 * kcut + 1) * pow(nu * nu * nu / (nu * Omega), 0.25),
-             Eface);
-      printf(" % .6e % .6e % .6e", u2 * sqrt(15 / (nu * eps)), lam, Lint);
+      double q[] = {t, energy / 2, Omega / 2, S[3], S[4], S[5], S[6], S[7], S[8],
+                    Sb[4], Sb[6], Pal / 2, dt * umax * (2 * kcut + 1), sqrt(wmax),
+                    (2 * kcut + 1) * pow(nu * nu * nu / eps, 0.25), Eface,
+                    u2 * sqrt(15 / (nu * eps)), lam, Lint};
+      if (tstep == 0)
+        printf("step t E Omega S3 S4 S5 S6 S7 S8 Sb4 Sb6 P C wmax keta Eface "
+               "Rlambda lambda L\n");
+      printf("% 10ld", tstep);
+      for (int i = 0; i < (int)(sizeof q / sizeof *q); i++)
+        printf(" % .16e", q[i]);
       printf("\n");
-      fflush(stdout);
+      if (fflush(stdout) != 0 || ferror(stdout)) {
+        fprintf(stderr, "etd: error: fail to write stdout\n");
+        exit(1);
+      }
     }
     if (ne > 0 && tstep % ne == 0) {
       long nb = 2 * (long)(sqrt(3.0) * (M + 1)) + 2;
@@ -637,15 +642,15 @@ int main(int argc, char **argv) {
         fprintf(stderr, "etd: error: fail to open '%s'\n", path);
         exit(1);
       }
-      fprintf(file, "# t = %.16e\n", t);
+      fprintf(file, "k E T Pi\n# t = %.16e\n", t);
       Pi = 0;
       for (long b = 0; b < nb; b++) {
         Pi -= E[nb + b];
         fprintf(file, "%.1f %.16e % .16e % .16e\n", b / 2.0, E[b], E[nb + b],
                 Pi);
       }
-      if (fclose(file) != 0) {
-        fprintf(stderr, "etd: error: fail to close '%s'\n", path);
+      if (ferror(file) || fclose(file) != 0) {
+        fprintf(stderr, "etd: error: fail to write '%s'\n", path);
         exit(1);
       }
       free(E);
@@ -673,8 +678,8 @@ int main(int argc, char **argv) {
             exit(1);
           }
         }
-      if (fclose(file) != 0) {
-        fprintf(stderr, "etd: error: fail to close '%s'\n", path);
+      if (ferror(file) || fclose(file) != 0) {
+        fprintf(stderr, "etd: error: fail to write '%s'\n", path);
         exit(1);
       }
     }
