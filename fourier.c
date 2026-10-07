@@ -259,8 +259,10 @@ int main(int argc, char **argv) {
       Omega = 0.0;
 #pragma omp parallel for reduction(+ : energy, Omega)
       for (long k = 0; k < n3f; k++) {
-        energy += cabs2(U_hat[k]) + cabs2(V_hat[k]) + cabs2(W_hat[k]);
-        Omega += kk[k] * (cabs2(U_hat[k]) + cabs2(V_hat[k]) + cabs2(W_hat[k]));
+        double h = k % nf == 0 || k % nf == n / 2 ? 0.5 : 1;
+        energy += h * (cabs2(U_hat[k]) + cabs2(V_hat[k]) + cabs2(W_hat[k]));
+        Omega +=
+            h * kk[k] * (cabs2(U_hat[k]) + cabs2(V_hat[k]) + cabs2(W_hat[k]));
       }
       energy *= invn3 * invn3;
       Omega *= invn3 * invn3;
