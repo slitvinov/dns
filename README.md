@@ -31,6 +31,9 @@ the grid used in the paper, grey where it is not stated.
 <p align="center"><img src="img/tgv_zoom.svg" width=600></p>
 Figure: The same, time = 8..10.
 
+<p align="center"><img src="img/tgv_diff.svg" width=600></p>
+Figure: Difference from n = 2048 for Re = 3000.
+
 <h2>References</h2>
 
 - Brachet, M. E., Meiron, D. I., Orszag, S. A., Nickel, B. G., Morf,
