@@ -34,6 +34,11 @@ Figure: The same, time = 8..10.
 <p align="center"><img src="img/tgv_diff.svg" width=600></p>
 Figure: Difference from n = 2048 for Re = 3000.
 
+At Re = 1600, `tg` on 512^3 and 1024^3 matches the 512^3 spectral
+reference of the High-Order CFD Workshop
+(`data/ref/spectral_Re1600_512.gdiag`: time, energy, dissipation rate,
+enstrophy) to 3e-4 in the dissipation rate and 1e-5 in the energy.
+
 <h2>References</h2>
 
 - Brachet, M. E., Meiron, D. I., Orszag, S. A., Nickel, B. G., Morf,
@@ -47,3 +52,7 @@ Figure: Difference from n = 2048 for Re = 3000.
 - Mortensen, M. (2016). Massively parallel implementation in Python of
   a pseudo-spectral DNS code for turbulent flows. arXiv preprint
   arXiv:1607.00850.
+
+- High-Order CFD Workshop, test case: Taylor-Green vortex at Re = 1600,
+  spectral reference data, 512^3,
+  https://cfd.ku.edu/hiocfd/spectral_Re1600_512.gdiag
