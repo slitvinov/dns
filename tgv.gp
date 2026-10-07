@@ -2,10 +2,7 @@ $grid << EOD
 0128  #2ca02c
 0256  #d62728
 0512  #000000
-EOD
-$fine << EOD
-1600
-3000
+1024  #9467bd
 EOD
 $paper << EOD
 0100  #999999
@@ -42,9 +39,6 @@ plot \
      for [i = 1:ng] for [j = 1:np] sprintf("data/tg/%s/%s", N[i], R[j]) \
          u 2:(2 * column(4) / R[j]) w l lw 3 lc rgb C[i] \
          t (j == 1 ? sprintf("n = %d", N[i] + 0) : ""), \
-     for [j = 1:|$fine|] sprintf("data/tg/1024/%s", word($fine[j], 1)) \
-         u 2:(2 * column(4) / word($fine[j], 1)) w l lw 3 lc rgb "#9467bd" \
-         t (j == 1 ? "n = 1024" : ""), \
      for [j = 1:np] "img/ref.txt" u 1:($3 == R[j] ? $2 : 1/0) \
          w p pt 6 lc rgb P[j] t (j == 1 ? "Brachet et al. (1983)" : "")
 set output "img/tgv_zoom.svg"
