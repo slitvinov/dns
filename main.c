@@ -341,15 +341,13 @@ int main(int argc, char **argv) {
       W_hat1[k] = W_hat[k];
     }
     for (rk = 0; rk < 4; rk++) {
-      if (rk > 0) {
-        c2r(bplan, n3f, U_hat, U, curlX); /* dump work space */
-        c2r(bplan, n3f, V_hat, V, curlX);
-        c2r(bplan, n3f, W_hat, W, curlX);
-        for (long k = 0; k < n3; k++) {
-          U[k] *= invn3;
-          V[k] *= invn3;
-          W[k] *= invn3;
-        }
+      c2r(bplan, n3f, U_hat, U, curlX); /* dump work space */
+      c2r(bplan, n3f, V_hat, V, curlX);
+      c2r(bplan, n3f, W_hat, W, curlX);
+      for (long k = 0; k < n3; k++) {
+        U[k] *= invn3;
+        V[k] *= invn3;
+        W[k] *= invn3;
       }
 #pragma omp parallel for collapse(3)
       for (long i = 0; i < n; i++)
