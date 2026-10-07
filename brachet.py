@@ -71,7 +71,7 @@ plt.legend()
 plt.savefig("img/delta.svg")
 fig, ax = plt.subplots(1, 2, figsize=(11, 5.5))
 for r in "0200", "0400", "0800", "1600", "inf":
-    d = np.loadtxt("inv084/out" if r == "inf" else "out/tg_n0256_re" + r)
+    d = np.loadtxt("inv084/out" if r == "inf" else "data/tg/0256/" + r)
     nu = 0 if r == "inf" else 1 / int(r)
     t, O, P = d[:, 1], d[:, 3], d[:, 12]
     S = np.sqrt(135 / 98) * (np.gradient(O, t) + 2 * nu * P) / O**1.5
@@ -91,7 +91,7 @@ table8 = {"0200": (7, 0.45, 6.8, 9.9, 86, 1.4e3, 18, 773),
           "1600": (9, 0.65, 10.0, 23.1, 273, 1.9e4, 15.6, 660)}
 print("Table 8: ours (paper); columns S3 S4 S5 S6 S8 Sb4 Sb6")
 for r, (t, *p) in table8.items():
-    d = np.loadtxt("out/tg_n0256_re" + r)
+    d = np.loadtxt("data/tg/0256/" + r)
     i = np.argmin(abs(d[:, 1] - t))
     ours = d[i, [4, 5, 6, 7, 9, 10, 11]]
     print("R = %4d t = %d " % (int(r), t) + " ".join(
@@ -211,3 +211,46 @@ a.set_ylabel("n(t)")
 a.set_title("tg -M 128, fit (5.3) over 13 < k < 83")
 a.legend()
 fig.savefig("img/fig9.png", dpi=110)
+
+
+print("Table 2: fits at kmax = 84 for several Kmin, Kmax: ours (paper)")
+table2 = [(0.5, 9, 16, 10.80, 0.85), (0.5, 14, 22, 2.74, 1.16), (1.0, 10, 30, 4.97, 0.46),
+          (1.0, 24, 44, 4.12, 0.47), (1.5, 10, 40, 4.79, 0.20), (1.5, 25, 55, 5.21, 0.19),
+          (1.5, 40, 70, 4.04, 0.20), (2.0, 10, 40, 4.43, 0.08), (2.0, 25, 55, 4.63, 0.08),
+          (2.0, 40, 70, 4.34, 0.08), (2.5, 10, 40, 4.36, 0.029), (2.5, 25, 55, 3.99, 0.036),
+          (2.5, 40, 70, 4.09, 0.035), (3.0, 10, 40, 4.87, -0.001), (3.0, 25, 55, 4.11, 0.011),
+          (3.0, 40, 70, 4.50, 0.007), (3.5, 10, 40, 3.79, 0.014), (3.5, 25, 55, 4.75, 0.000),
+          (3.5, 40, 70, 7.09, -0.026)]
+for t, lo, hi, pn, pd in table2:
+    t0, k, E = spectrum("inv084/e.%08d" % round(t / 0.0025), dk)
+    d, n, A = fit(k, E, lo, hi)
+    print("t = %.1f %2d..%2d  n %6.2f (%6.2f)  delta %7.3f (%6.3f)" % (t, lo, hi, n, pn, d, pd))
+
+from scipy.optimize import least_squares
+
+K = np.array([10, 20, 42, 84])
+runs = [np.loadtxt("data/tg/%04d/inf" % n) for n in (32, 64, 128, 256)]
+T = np.arange(0, 4.01, 0.25)
+
+
+def extrapolate(F):
+    if np.ptp(F) < 1e-12 * abs(F[-1]):
+        return F[-1]
+    def res(p):
+        return F - (p[0] - p[1] * K ** -p[2] * np.exp(-p[3] * K))
+    best = None
+    for m0 in 0.5, 1, 2, 4:
+        for d0 in 0.01, 0.05, 0.2:
+            s = least_squares(res, [F[-1], (F[-1] - F[0]) * 10 ** m0, m0, d0],
+                              bounds=([-np.inf, -np.inf, -5, 0], [np.inf, np.inf, 10, 2]))
+            if best is None or s.cost < best.cost:
+                best = s
+    return best.x[0] if best.cost < 1e-14 else float("nan")
+
+
+for name, f in ("Table 3: Omega1(t)", lambda d: d[:, 3]), \
+               ("Table 4: dOmega1/dt", lambda d: np.gradient(d[:, 3], d[:, 1], edge_order=2)):
+    print(name + " for kmax = 10, 20, 42, 84, infinity")
+    for t in T:
+        F = np.array([np.interp(t, d[:, 1], f(d)) for d in runs])
+        print("%5.2f " % t + " ".join("%.5f" % x for x in F) + "  %.5f" % extrapolate(F))

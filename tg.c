@@ -62,6 +62,10 @@ static void transform(int dir, int c, const int *t, double *a, double *b) {
     double *x = fftw_alloc_real(n3), *y = fftw_alloc_real(n3);
     *p = fftw_plan_guru_r2r(3, dims, 0, NULL, x + in, y + out, kd,
                             FFTW_MEASURE | FFTW_UNALIGNED);
+    if (*p == NULL) {
+      fprintf(stderr, "tg: error: fftw_plan_guru_r2r failed\n");
+      exit(1);
+    }
     fftw_free(x);
     fftw_free(y);
   }
@@ -114,9 +118,9 @@ static void moments(double *fe, double *fo, double *S) {
     S[n] = (n % 2 ? -1 : 1) * (m[n] / m[0]) / pow(m[2] / m[0], n / 2.0);
 }
 int main(int argc, char **argv) {
-  long M, i, j, k, l, tstep, ne;
+  long M, i, j, k, l, tstep, ne, nd;
   int c, d, kcut;
-  double nu, dt, T, t, x, e, *u[2][3], *um[2][3], *w[2][3], *du[2][3],
+  double nu, dt, T, t, x, e, dd, *u[2][3], *um[2][3], *w[2][3], *du[2][3],
       *U[2][3], *W[2][3], *F[3], *tmp;
   char *end;
   static const int tu[3][3] = {
@@ -129,10 +133,11 @@ int main(int argc, char **argv) {
   dt = -1;
   T = 0;
   e = 0;
+  dd = 0;
   while (*++argv != NULL && argv[0][0] == '-') {
     if (argv[0][1] == 'h') {
       fprintf(stderr, "Usage: tg -M <modes> -n <viscosity> -t <end time> -s "
-                      "<time step> [-e <spectrum interval>]\n");
+                      "<time step> [-e <spectrum interval>] [-d <dump interval>]\n");
       exit(1);
     }
     if (argv[1] == NULL) {
@@ -160,6 +165,9 @@ int main(int argc, char **argv) {
     case 'e':
       e = x;
       break;
+    case 'd':
+      dd = x;
+      break;
     default:
       fprintf(stderr, "tg: error: unknown option '%s'\n", *argv);
       exit(1);
@@ -178,6 +186,7 @@ int main(int argc, char **argv) {
   n3 = N1 * N1 * N1;
   kcut = M / 3;
   ne = e > 0 ? lround(e / dt) : 0;
+  nd = dd > 0 ? lround(dd / dt) : 0;
   for (c = 0; c < 2; c++)
     for (d = 0; d < 2; d++) {
       wsyn[c][d] = malloc(N1 * sizeof(double));
@@ -292,8 +301,30 @@ int main(int argc, char **argv) {
       fprintf(file, "# t = %.16e\n", t);
       for (long b = 0; b < nb; b++)
         fprintf(file, "%.1f %.16e\n", b / 2.0, E[b]);
-      fclose(file);
+      if (fclose(file) != 0) {
+        fprintf(stderr, "tg: error: fail to close '%s'\n", path);
+        exit(1);
+      }
       free(E);
+    }
+    if (nd > 0 && tstep % nd == 0) {
+      char path[FILENAME_MAX];
+      FILE *file;
+      sprintf(path, "u.%08ld", tstep);
+      if ((file = fopen(path, "w")) == NULL) {
+        fprintf(stderr, "tg: error: fail to open '%s'\n", path);
+        exit(1);
+      }
+      for (c = 0; c < 2; c++)
+        for (d = 0; d < 3; d++)
+          if (fwrite(u[c][d], sizeof(double), n3, file) != (size_t)n3) {
+            fprintf(stderr, "tg: error: fail to write '%s'\n", path);
+            exit(1);
+          }
+      if (fclose(file) != 0) {
+        fprintf(stderr, "tg: error: fail to close '%s'\n", path);
+        exit(1);
+      }
     }
     if (t > T)
       break;

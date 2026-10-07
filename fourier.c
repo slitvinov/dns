@@ -270,18 +270,30 @@ int main(int argc, char **argv) {
       fflush(stdout);
       if (Dump) {
         sprintf(path, "%08ld.raw", tstep);
-        file = fopen(path, "w");
+        if ((file = fopen(path, "w")) == NULL) {
+          fprintf(stderr, "fourier: error: fail to open '%s'\n", path);
+          exit(1);
+        }
         for (ivar = 0; ivar < sizeof list / sizeof *list; ivar++) {
           memcpy(dump_hat, list[ivar].var, n3f * sizeof(fftw_complex));
           fftw_execute_dft_c2r(bplan, dump_hat, dump);
 #pragma omp parallel for
           for (long i = 0; i < n3; i++)
             dump[i] *= invn3;
-          fwrite(dump, n3, sizeof(double), file);
+          if (fwrite(dump, sizeof(double), n3, file) != (size_t)n3) {
+            fprintf(stderr, "fourier: error: fail to write '%s'\n", path);
+            exit(1);
+          }
         }
-        fclose(file);
+        if (fclose(file) != 0) {
+          fprintf(stderr, "fourier: error: fail to close '%s'\n", path);
+          exit(1);
+        }
         sprintf(path, "a.%08ld.xdmf2", idump);
-        file = fopen(path, "w");
+        if ((file = fopen(path, "w")) == NULL) {
+          fprintf(stderr, "fourier: error: fail to open '%s'\n", path);
+          exit(1);
+        }
         fprintf(file,
                 "<Xdmf\n"
                 "    Version=\"2\">\n"
@@ -321,13 +333,16 @@ int main(int argc, char **argv) {
                   "          %08ld.raw\n"
                   "        </DataItem>\n"
                   "      </Attribute>\n",
-                  list[ivar].name, offset, n, n, n, idump);
+                  list[ivar].name, offset, n, n, n, tstep);
           offset += n3 * sizeof(double);
         }
         fprintf(file, "    </Grid>\n"
                       "  </Domain>\n"
                       "</Xdmf>\n");
-        fclose(file);
+        if (fclose(file) != 0) {
+          fprintf(stderr, "fourier: error: fail to close '%s'\n", path);
+          exit(1);
+        }
         idump++;
       }
     }
