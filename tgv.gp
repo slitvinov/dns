@@ -33,9 +33,16 @@ set size sq
 set xlabel "time"
 set ylabel "rate of energy dissipation"
 set ytics 0, 0.01, 0.02
-plot [0:10][0:0.02] \
+set xrange [0:10]
+set yrange [0:0.02]
+plot \
      for [i = 1:ng] for [j = 1:np] sprintf("data/tg/%s/%s", N[i], R[j]) \
          u 2:(2 * column(4) / R[j]) w l lw 3 lc rgb C[i] \
          t (j == 1 ? sprintf("n = %d", N[i] + 0) : ""), \
      for [j = 1:np] "img/ref.txt" u 1:($3 == R[j] ? $2 : 1/0) \
          w p pt 6 lc rgb P[j] t (j == 1 ? "Brachet et al. (1983)" : "")
+set output "img/tgv_zoom.svg"
+set xrange [8:10]
+set yrange [0.009:0.016]
+set ytics 0.009, 0.001, 0.016
+replot

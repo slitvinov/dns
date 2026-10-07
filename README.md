@@ -28,6 +28,9 @@ Brachet et al. (circles, `img/ref.txt`). From top to bottom at time =
 0: Re = 100, 200, 400, 800, 1600, 3000. The circles have the colour of
 the grid used in the paper, grey where it is not stated.
 
+<p align="center"><img src="img/tgv_zoom.svg" width=600></p>
+Figure: The same, time = 8..10.
+
 <h2>References</h2>
 
 - Brachet, M. E., Meiron, D. I., Orszag, S. A., Nickel, B. G., Morf,
