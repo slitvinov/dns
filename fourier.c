@@ -305,7 +305,7 @@ int main(int argc, char **argv) {
                 "          TopologyType=\"3DCoRectMesh\"\n"
                 "          Dimensions=\"%ld %ld %ld\"/>\n"
                 "      <Geometry\n"
-                "          GeometryType=\"ORIGIn_DXDYDZ\">\n"
+                "          GeometryType=\"ORIGIN_DXDYDZ\">\n"
                 "        <DataItem\n"
                 "            Dimensions=\"3\">\n"
                 "          0\n"
