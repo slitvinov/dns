@@ -1,46 +1,55 @@
 <h2>Build</h2>
 
-Compile, prepear initial conditions and run. Outputs step, time,
-energy, and enstropy.
+Two pseudo-spectral solvers for incompressible flow in a periodic box.
+
+- `fourier.c`: general complex Fourier series, rotational form u × ω,
+  2/3 dealiasing, RK4. Any initial condition.
+- `tg.c`: the Taylor–Green vortex with the symmetric representation of
+  Brachet et al. (1983): sine/cosine series, all-even and all-odd modes
+  kept apart, fundamental box [0, π/2]^3, leapfrog for the nonlinear
+  term and Crank–Nicolson for the viscous term.
+
+Needs FFTW ≥ 3.3.9 with OpenMP (`fftw_threads_set_callback`).
 <pre>
-$ c99 main.c -fopenmp -O3 -march=native -lfftw3 -lfftw3_omp -lm -o dns
+$ make
 $ ./tgv.py -l 6 -o tgv.raw
-$ tgv.py: n=64
-$ ./dns -i tgv.raw -t 10 -n 0.01 -s 0.01
-dns: omp_get_max_threads: 8
-dns: n = 64
-         0  0.0000000000000000e+00  6.2500000000000000e-02  1.8750000000000000e-01
-        10  9.9999999999999992e-02  6.2109882886321448e-02  1.8653150768334470e-01
-        20  2.0000000000000004e-01  6.1689599926948888e-02  1.8586250548841311e-01
-        30  3.0000000000000010e-01  6.1239137609790719e-02  1.8547074698875845e-01
-        40  4.0000000000000019e-01  6.0758404926193962e-02  1.8533236230172120e-01
-        50  5.0000000000000022e-01  6.0247339559280366e-02  1.8542325605932955e-01
+tgv.py: n=64
+$ ./fourier -i tgv.raw -t 10 -n 0.01 -s 0.01
+         0  0.0000000000000000e+00  1.2500000000000000e-01  3.7500000000000000e-01
+        10  9.9999999999999992e-02  1.2425198808904905e-01  3.7314144554701101e-01
         ...
+$ ./tg -M 32 -t 10 -n 0.01 -s 0.01
 </pre>
 
+Both print step, time, energy ½⟨|u|²⟩ and enstrophy ½⟨|ω|²⟩. `tg -M
+128` is the (256)^3 run of the paper. `tg` also prints the skewness and
+flatness factors S3..S8 of ∂vx/∂x, S̄4, S̄6 of ∂²vx/∂x², and the
+palinstrophy, and with `-e <interval>` writes the energy spectrum
+E(k) in bins of width 1/2 to `e.<step>`.
+
 ```
-Usage: dns [-v] [-d] -i <input.raw> -n <viscosity> -t <end time> -s <time step>
-
-Options:
-  -i <input.raw>    Input file
-  -n <viscosity>    Viscosity
-  -t <end time>     End time
-  -s <time step>    Time step
-  -v                Verbose output
-  -d                Dump snapshots
-  -h                Show this help message
-
-Example:
-  dns -i tgv.raw -n 0.01 -t 1.0 -s 0.001 -v
+Usage: fourier [-v] [-d] -i <input.raw> -n <viscosity> -t <end time> -s <time step>
+Usage: tg -M <modes> -n <viscosity> -t <end time> -s <time step> [-e <spectrum interval>]
 ```
 
-<h3>Validataion</h2>
+<h3>Validation</h2>
 
 <p align="center"><img src="img/tgv.svg" width=600></p>
 Figure: Energy dissipation rate vs. time for the Taylor–Green
-vortex. Reference data (points) from Brachet et al. is shown alongside
-simulation results (lines). From top to bottom at time = 0: Re = 100,
-200, 400, 800, 1600, 3000.
+vortex. Reference data (points) from Brachet et al., `fourier` at
+256^3 (black lines) and `tg -M 128` (red dashed lines). From top to
+bottom at time = 0: Re = 100, 200, 400, 800, 1600, 3000.
+
+`brachet.py` reproduces more of the paper from `inv042/`, `inv084/`
+(inviscid runs, k_max = 42 and 84) and `tg0256/`:
+
+- figures 3–4: inviscid spectra, `img/spectrum.svg`;
+- table 1 and figure 5: the width of the analyticity strip δ(t),
+  `img/delta.svg`; δ(1.5) = 0.186 (paper 0.192), δ(2.5) = 0.031
+  (0.034) at k_max = 84;
+- figure 12: skewness S3(0)(t), `img/skewness.svg`. The figure of the
+  paper agrees with the isotropic relation (5.8), not with the average
+  of (∂vx/∂x)^3 in (5.6).
 
 <h2>References</h2>
 

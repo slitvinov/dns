@@ -58,7 +58,7 @@ int main(int argc, char **argv) {
   while (*++argv != NULL && argv[0][0] == '-') {
     switch (argv[0][1]) {
     case 'h':
-      fprintf(stderr, "Usage: dns [-v] [-d] -i <input.raw> -n <viscosity> -t "
+      fprintf(stderr, "Usage: fourier [-v] [-d] -i <input.raw> -n <viscosity> -t "
                       "<end time> -s <time step>\n"
                       "\n"
                       "Options:\n"
@@ -71,7 +71,7 @@ int main(int argc, char **argv) {
                       "  -h                Show this help message\n"
                       "\n"
                       "Example:\n"
-                      "  dns -i tgv.raw -n 0.01 -t 1.0 -s 0.001 -v\n");
+                      "  fourier -i tgv.raw -n 0.01 -t 1.0 -s 0.001 -v\n");
 #ifdef _OPENMP
       fprintf(stderr, "\nBuild Info:\n"
                       "  OpenMP is enabled.\n");
@@ -86,7 +86,7 @@ int main(int argc, char **argv) {
     case 'i':
       argv++;
       if (*argv == NULL) {
-        fprintf(stderr, "dns: error: -i needs an argument\n");
+        fprintf(stderr, "fourier: error: -i needs an argument\n");
         exit(1);
       }
       input_path = *argv;
@@ -94,62 +94,62 @@ int main(int argc, char **argv) {
     case 'n':
       argv++;
       if (*argv == NULL) {
-        fprintf(stderr, "dns: error: -n needs an argument\n");
+        fprintf(stderr, "fourier: error: -n needs an argument\n");
         exit(1);
       }
       nu = strtod(*argv, &end);
       if (*end != '\0') {
-        fprintf(stderr, "dns: error: '%s' is not a number\n", *argv);
+        fprintf(stderr, "fourier: error: '%s' is not a number\n", *argv);
         exit(1);
       }
       break;
     case 's':
       argv++;
       if (*argv == NULL) {
-        fprintf(stderr, "dns: error: -s needs an argument\n");
+        fprintf(stderr, "fourier: error: -s needs an argument\n");
         exit(1);
       }
       dt = strtod(*argv, &end);
       if (*end != '\0') {
-        fprintf(stderr, "dns: error: '%s' is not a number\n", *argv);
+        fprintf(stderr, "fourier: error: '%s' is not a number\n", *argv);
         exit(1);
       }
       break;
     case 't':
       argv++;
       if (*argv == NULL) {
-        fprintf(stderr, "dns: error: -t needs an argument\n");
+        fprintf(stderr, "fourier: error: -t needs an argument\n");
         exit(1);
       }
       T = strtod(*argv, &end);
       if (*end != '\0') {
-        fprintf(stderr, "dns: error: '%s' is not a number\n", *argv);
+        fprintf(stderr, "fourier: error: '%s' is not a number\n", *argv);
         exit(1);
       }
       break;
     default:
-      fprintf(stderr, "dns: error: unknown option '%s'\n", *argv);
+      fprintf(stderr, "fourier: error: unknown option '%s'\n", *argv);
       exit(1);
     }
   }
   if (T == 0) {
-    fprintf(stderr, "dns: error: -t is not set or invalid\n");
+    fprintf(stderr, "fourier: error: -t is not set or invalid\n");
     exit(1);
   }
   if (nu == -1) {
-    fprintf(stderr, "dns: error: -n is not set or invalid\n");
+    fprintf(stderr, "fourier: error: -n is not set or invalid\n");
     exit(1);
   }
   if (dt == -1) {
-    fprintf(stderr, "dns: error: -s is not set or invalid\n");
+    fprintf(stderr, "fourier: error: -s is not set or invalid\n");
     exit(1);
   }
   if (input_path == NULL) {
-    fprintf(stderr, "dns: error: -i is not set\n");
+    fprintf(stderr, "fourier: error: -i is not set\n");
     exit(1);
   }
   if ((file = fopen(input_path, "r")) == NULL) {
-    fprintf(stderr, "dns: error: fail to open '%s'\n", input_path);
+    fprintf(stderr, "fourier: error: fail to open '%s'\n", input_path);
     exit(1);
   }
 
@@ -157,7 +157,7 @@ int main(int argc, char **argv) {
   fftw_init_threads();
   fftw_plan_with_nthreads(omp_get_max_threads());
   if (Verbose)
-    fprintf(stderr, "dns: omp_get_max_threads: %d\n", omp_get_max_threads());
+    fprintf(stderr, "fourier: omp_get_max_threads: %d\n", omp_get_max_threads());
   fftw_threads_set_callback(parallel_loop, NULL);
 #endif
   fseek(file, 0, SEEK_END);
@@ -166,11 +166,11 @@ int main(int argc, char **argv) {
   long n = offset / sizeof(double) / nvars;
   n = round(powf(n, 1.0 / 3));
   if (n * n * n * nvars * sizeof(double) != offset) {
-    fprintf(stderr, "dns: error: wrong file '%s'\n", input_path);
+    fprintf(stderr, "fourier: error: wrong file '%s'\n", input_path);
     exit(1);
   }
   if (Verbose)
-    fprintf(stderr, "dns: n = %ld\n", n);
+    fprintf(stderr, "fourier: n = %ld\n", n);
   long nf = n / 2 + 1;
   long n3 = n * n * n;
   long n3f = n * n * nf;
@@ -180,7 +180,7 @@ int main(int argc, char **argv) {
   if (fread(U, sizeof(double), n3, file) != (size_t)n3 ||
       fread(V, sizeof(double), n3, file) != (size_t)n3 ||
       fread(W, sizeof(double), n3, file) != (size_t)n3 || fclose(file) != 0) {
-    fprintf(stderr, "dns: error: fail to read '%s'\n", input_path);
+    fprintf(stderr, "fourier: error: fail to read '%s'\n", input_path);
     exit(1);
   }
   L = 2 * pi;
