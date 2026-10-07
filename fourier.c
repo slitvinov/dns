@@ -218,9 +218,9 @@ int main(int argc, char **argv) {
     fftw_complex *var;
     const char *name;
   } list[nvars] = {{U_hat, "U"}, {V_hat, "V"}, {W_hat, "W"}, {P_hat, "P"}};
-  fplan = fftw_plan_dft_r2c_3d(n, n, n, U, U_hat,
-                               FFTW_ESTIMATE | FFTW_PRESERVE_INPUT);
-  bplan = fftw_plan_dft_c2r_3d(n, n, n, U_hat, U, FFTW_ESTIMATE);
+  fplan = fftw_plan_dft_r2c_3d(n, n, n, CU, dU,
+                               FFTW_MEASURE | FFTW_PRESERVE_INPUT);
+  bplan = fftw_plan_dft_c2r_3d(n, n, n, dU, CU, FFTW_MEASURE);
   for (long i = 0; i < n / 2; i++) {
     kx[i] = i;
     kz[i] = i;
@@ -346,6 +346,7 @@ int main(int argc, char **argv) {
       c2r(bplan, n3f, U_hat, U, curlX); /* dump work space */
       c2r(bplan, n3f, V_hat, V, curlX);
       c2r(bplan, n3f, W_hat, W, curlX);
+#pragma omp parallel for
       for (long k = 0; k < n3; k++) {
         U[k] *= invn3;
         V[k] *= invn3;
