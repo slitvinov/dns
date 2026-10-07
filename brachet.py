@@ -71,7 +71,7 @@ plt.legend()
 plt.savefig("img/delta.svg")
 fig, ax = plt.subplots(1, 2, figsize=(11, 5.5))
 for r in "0200", "0400", "0800", "1600", "inf":
-    d = np.loadtxt("inv084/out" if r == "inf" else "tg0256/" + r)
+    d = np.loadtxt("inv084/out" if r == "inf" else "out/tg_n0256_re" + r)
     nu = 0 if r == "inf" else 1 / int(r)
     t, O, P = d[:, 1], d[:, 3], d[:, 12]
     S = np.sqrt(135 / 98) * (np.gradient(O, t) + 2 * nu * P) / O**1.5
@@ -91,7 +91,7 @@ table8 = {"0200": (7, 0.45, 6.8, 9.9, 86, 1.4e3, 18, 773),
           "1600": (9, 0.65, 10.0, 23.1, 273, 1.9e4, 15.6, 660)}
 print("Table 8: ours (paper); columns S3 S4 S5 S6 S8 Sb4 Sb6")
 for r, (t, *p) in table8.items():
-    d = np.loadtxt("tg0256/" + r)
+    d = np.loadtxt("out/tg_n0256_re" + r)
     i = np.argmin(abs(d[:, 1] - t))
     ours = d[i, [4, 5, 6, 7, 9, 10, 11]]
     print("R = %4d t = %d " % (int(r), t) + " ".join(
@@ -101,7 +101,7 @@ for r, (t, *p) in table8.items():
 def side(name, page, draw):
     fig = plt.figure(figsize=(13, 7))
     a = fig.add_subplot(1, 2, 1)
-    a.imshow(plt.imread("refs/pages/fig_%s.png" % page))
+    a.imshow(plt.imread("img/paper/%s.png" % page))
     a.axis("off")
     a.set_title("Brachet et al. (1983)")
     draw(fig)
@@ -168,6 +168,46 @@ def fig10(fig):
     fig.subplots_adjust(hspace=0.45)
 
 
-side("fig3", "09", fig3)
-side("fig4", "10", fig4)
-side("fig10", "24", fig10)
+side("fig3", "fig3", fig3)
+side("fig4", "fig4", fig4)
+side("fig10", "fig10", fig10)
+
+
+table7 = {("1600", "10<k<80"): ((3.29, .0091), (2.84, .024), (1.47, .049), (1.86, .043)),
+          ("1600", "13<k<83"): ((3.22, .0108), (3.00, .020), (1.59, .045), (1.98, .039)),
+          ("3000", "10<k<80"): ((3.20, -.0019), (2.71, .003), (1.73, .012), (2.03, .009)),
+          ("3000", "13<k<83"): ((3.14, -.0062), (2.68, .003), (1.72, .012), (2.02, .009))}
+print("Table 7: n, beta of E = A exp(-beta k) k^-n, dk = 1: ours (paper)")
+print("%4s %8s " % ("R", "range") + " ".join("%22s" % ("t = %.1f" % t) for t in (6.8, 7.8, 8.8, 9.8)))
+for (r, rng), paper in table7.items():
+    lo, hi = (10, 80) if rng == "10<k<80" else (13, 83)
+    row = []
+    for t, (pn, pb) in zip((6.8, 7.8, 8.8, 9.8), paper):
+        tt, k, E = spectrum("fig9/%s/e.%08d" % (r, round(t / 0.0025)), 1)
+        s = (k > lo) & (k < hi)
+        d, n, A = fit(k[s], E[s], lo, hi)
+        row.append("%.2f %.4f (%.2f %.4f)" % (n, 2 * d, pn, pb))
+    print("%4s %8s " % (r, rng) + " ".join("%22s" % x for x in row))
+fig = plt.figure(figsize=(13, 6))
+a = fig.add_subplot(1, 2, 1)
+a.imshow(plt.imread("img/paper/fig9.png"))
+a.axis("off")
+a.set_title("Brachet et al. (1983), figure 9")
+a = fig.add_subplot(1, 2, 2)
+for r, m in ("1600", "+"), ("3000", "o"):
+    T, N = [], []
+    for path in sorted(glob.glob("fig9/%s/e.*" % r)):
+        tt, k, E = spectrum(path, 1)
+        if tt < 6.9:
+            continue
+        s = (k > 13) & (k < 83)
+        T.append(tt)
+        N.append(fit(k[s], E[s], 13, 83)[1])
+    a.plot(T, N, m, mfc="none", color="k", label="R = %s" % r)
+a.set_xlim(7, 10)
+a.set_ylim(0, 4)
+a.set_xlabel("t")
+a.set_ylabel("n(t)")
+a.set_title("tg -M 128, fit (5.3) over 13 < k < 83")
+a.legend()
+fig.savefig("img/fig9.png", dpi=110)

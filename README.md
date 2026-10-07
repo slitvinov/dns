@@ -36,20 +36,23 @@ Usage: tg -M <modes> -n <viscosity> -t <end time> -s <time step> [-e <spectrum i
 
 <p align="center"><img src="img/tgv.svg" width=600></p>
 Figure: Energy dissipation rate vs. time for the Taylor–Green
-vortex. Reference data (points) from Brachet et al., `fourier` at
-256^3 (black lines) and `tg -M 128` (red dashed lines). From top to
-bottom at time = 0: Re = 100, 200, 400, 800, 1600, 3000.
+vortex, `tg` at 64^3, 128^3, 256^3 and 512^3 (lines, `tgv.gp`, runs in
+`data/tg/<grid>/<Re>`), and figure 7 of Brachet et al. (circles,
+re-digitized in `img/ref.txt`: t, ε, Re, 1 or 0 where curves cross;
+crosses mark where curves cross). The circles take the colour of the
+grid the paper used. At the paper's grid the peak agrees to 0.3% (0.9% at Re 800):
 
-`brachet.py` reproduces more of the paper from `inv042/`, `inv084/`
-(inviscid runs, k_max = 42 and 84) and `tg0256/`:
+| Re | grid | tg | figure 7 | 512^3 |
+|---|---|---|---|---|
+| 400 | 128^3 | 0.01098 | 0.01100 | 0.01098 |
+| 800 | 128^3 (inferred) | 0.01188 | 0.01199 | 0.01172 |
+| 1600 | 256^3 | 0.01292 | 0.01296 | 0.01286 |
+| 3000 | 256^3 | 0.01530 | 0.01528 | 0.01505 |
 
-- figures 3–4: inviscid spectra, `img/spectrum.svg`;
-- table 1 and figure 5: the width of the analyticity strip δ(t),
-  `img/delta.svg`; δ(1.5) = 0.186 (paper 0.192), δ(2.5) = 0.031
-  (0.034) at k_max = 84;
-- figure 12: skewness S3(0)(t), `img/skewness.svg`. The figure of the
-  paper agrees with the isotropic relation (5.8), not with the average
-  of (∂vx/∂x)^3 in (5.6).
+The agreement at Re 3000 needs the truncation of the paper: the even
+and the odd modes are kept by array index, n <= M/3, so at M = 128
+even wavenumbers go to 84 and odd ones to 85. Cutting both at 84
+gives 0.01472.
 
 <h2>References</h2>
 

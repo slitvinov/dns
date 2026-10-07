@@ -1,6 +1,6 @@
 cat <<! | awk '{printf "%04d %.16e\n", $1, 1/$1}' | \
     xargs --process-slot-var I -n 2 -P `nproc` sh -xc \
-          'exec taskset --cpu-list $I ./fourier -t 10 -n $1 -s 0.0025 -i tgv.raw > 0256/$0'
+          'exec taskset --cpu-list $I ./fourier -t 10 -n $1 -s 0.0025 -i tgv.raw > data/fourier/0256/$0'
 100
 200
 400
@@ -10,7 +10,7 @@ cat <<! | awk '{printf "%04d %.16e\n", $1, 1/$1}' | \
 !
 cat <<! | awk '{printf "%04d %.16e\n", $1, 1/$1}' | \
     xargs --process-slot-var I -n 2 -P `nproc` sh -xc \
-          'exec taskset --cpu-list $I ./tg -M 128 -t 10 -n $1 -s 0.0025 > tg0256/$0'
+          'exec taskset --cpu-list $I ./tg -M 128 -t 10 -n $1 -s 0.0025 > data/tg/0256/$0'
 100
 200
 400
