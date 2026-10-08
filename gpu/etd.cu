@@ -450,8 +450,17 @@ static void collect(int K, const double *dP, double *P, double *sum) {
     for (int q = 0; q < K; q++)
       sum[q] += P[b * K + q];
 }
+static long steps(const char *opt, double x, double dt) {
+  long n = lround(x / dt);
+  if (fabs(n * dt - x) > 1e-9 * x) {
+    fprintf(stderr, "etd: error: %s %g is not a multiple of -s %g\n", opt, x,
+            dt);
+    exit(1);
+  }
+  return n;
+}
 int main(int argc, char **argv) {
-  long M, tstep, ne, nd, kcut, nk, start;
+  long M, tstep, ne, nd, kcut, nk, start, nt;
   int c, d;
   double nu, dt, T_end, t, x, e, dd, *dP, *P, *dE, *host, *tab, one;
   size_t ws;
@@ -520,8 +529,9 @@ int main(int argc, char **argv) {
   n3 = N1 * N1 * N1;
   B = N1 * N1;
   kcut = M / 3;
-  ne = e > 0 ? lround(e / dt) : 0;
-  nd = dd > 0 ? lround(dd / dt) : 0;
+  ne = e > 0 ? steps("-e", e, dt) : 0;
+  nd = dd > 0 ? steps("-d", dd, dt) : 0;
+  nt = steps("-t", T_end, dt);
   for (c = 0; c < 2; c++)
     for (d = 0; d < 3; d++) {
       cuda(cudaMalloc(&u.a[c][d], n3 * sizeof(double)), "cudaMalloc");
@@ -647,7 +657,7 @@ int main(int argc, char **argv) {
                     Sb[4], Sb[6], Pal / 2, dt * umax * (2 * kcut + 1), sqrt(wmax),
                     (2 * kcut + 1) * pow(nu * nu * nu / eps, 0.25), Eface,
                     u2 * sqrt(15 / (nu * eps)), lam, Lint};
-      if (tstep == 0)
+      if (tstep == start)
         printf("step t E Omega S3 S4 S5 S6 S7 S8 Sb4 Sb6 P C wmax keta Eface "
                "Rlambda lambda L\n");
       printf("% 10ld", tstep);
@@ -722,7 +732,7 @@ int main(int argc, char **argv) {
         exit(1);
       }
     }
-    if (t > T_end)
+    if (tstep >= nt)
       break;
     for (int q = 0; q < 4; q++) {
       rhs(kcut, q == 0 ? u : s, q == 0 ? Nv : du);
@@ -732,8 +742,8 @@ int main(int argc, char **argv) {
         launched("stage");
       }
     }
-    t += dt;
     tstep++;
+    t = tstep * dt;
   }
   cuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize");
 }

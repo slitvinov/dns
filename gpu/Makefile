@@ -2,7 +2,7 @@ NVCC = nvcc
 NVCCFLAGS = -O3 -arch=sm_90
 LDLIBS = -lcufft
 
-all: fourier tg etd
+all: fourier tg etd box
 
 fourier: fourier.cu
 	$(NVCC) $(NVCCFLAGS) -o fourier fourier.cu $(LDLIBS)
@@ -13,5 +13,8 @@ tg: tg.cu
 etd: etd.cu
 	$(NVCC) $(NVCCFLAGS) -o etd etd.cu $(LDLIBS)
 
+box: box.cu
+	$(NVCC) $(NVCCFLAGS) -o box box.cu $(LDLIBS)
+
 clean:
-	rm -f fourier tg etd
+	rm -f fourier tg etd box

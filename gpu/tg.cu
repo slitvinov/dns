@@ -328,8 +328,17 @@ static void collect(int K, const double *dP, double *P, double *sum) {
     for (int q = 0; q < K; q++)
       sum[q] += P[b * K + q];
 }
+static long steps(const char *opt, double x, double dt) {
+  long n = lround(x / dt);
+  if (fabs(n * dt - x) > 1e-9 * x) {
+    fprintf(stderr, "tg: error: %s %g is not a multiple of -s %g\n", opt, x,
+            dt);
+    exit(1);
+  }
+  return n;
+}
 int main(int argc, char **argv) {
-  long M, tstep, ne, nd, kcut;
+  long M, tstep, ne, nd, kcut, nt;
   int c, d;
   double nu, dt, T_end, t, x, e, dd, *F[3], *tmp, *dP, *P, *dE, *host, one;
   size_t ws;
@@ -396,8 +405,9 @@ int main(int argc, char **argv) {
   n3 = N1 * N1 * N1;
   B = N1 * N1;
   kcut = M / 3;
-  ne = e > 0 ? lround(e / dt) : 0;
-  nd = dd > 0 ? lround(dd / dt) : 0;
+  ne = e > 0 ? steps("-e", e, dt) : 0;
+  nd = dd > 0 ? steps("-d", dd, dt) : 0;
+  nt = steps("-t", T_end, dt);
   for (c = 0; c < 2; c++)
     for (d = 0; d < 3; d++) {
       cuda(cudaMalloc(&u.a[c][d], n3 * sizeof(double)), "cudaMalloc");
@@ -534,7 +544,7 @@ int main(int argc, char **argv) {
         exit(1);
       }
     }
-    if (t > T_end)
+    if (tstep >= nt)
       break;
     for (c = 0; c < 2; c++)
       for (d = 0; d < 3; d++) {
@@ -552,8 +562,8 @@ int main(int argc, char **argv) {
                                      u, um);
       launched("advance");
     }
-    t += dt;
     tstep++;
+    t = tstep * dt;
   }
   cuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize");
 }

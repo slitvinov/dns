@@ -117,8 +117,17 @@ static void moments(double *fe, double *fo, double *S) {
   for (int n = 3; n < 9; n++)
     S[n] = (n % 2 ? -1 : 1) * (m[n] / m[0]) / pow(m[2] / m[0], n / 2.0);
 }
+static long steps(const char *opt, double x, double dt) {
+  long n = lround(x / dt);
+  if (fabs(n * dt - x) > 1e-9 * x) {
+    fprintf(stderr, "tg: error: %s %g is not a multiple of -s %g\n", opt, x,
+            dt);
+    exit(1);
+  }
+  return n;
+}
 int main(int argc, char **argv) {
-  long M, i, j, k, l, tstep, ne, nd;
+  long M, i, j, k, l, tstep, ne, nd, nt;
   int c, d, kcut;
   double nu, dt, T, t, x, e, dd, *u[2][3], *um[2][3], *w[2][3], *du[2][3],
       *U[2][3], *W[2][3], *F[3], *tmp;
@@ -185,8 +194,9 @@ int main(int argc, char **argv) {
   N1 = N + 1;
   n3 = N1 * N1 * N1;
   kcut = M / 3;
-  ne = e > 0 ? lround(e / dt) : 0;
-  nd = dd > 0 ? lround(dd / dt) : 0;
+  ne = e > 0 ? steps("-e", e, dt) : 0;
+  nd = dd > 0 ? steps("-d", dd, dt) : 0;
+  nt = steps("-t", T, dt);
   for (c = 0; c < 2; c++)
     for (d = 0; d < 2; d++) {
       wsyn[c][d] = malloc(N1 * sizeof(double));
@@ -329,7 +339,7 @@ int main(int argc, char **argv) {
         exit(1);
       }
     }
-    if (t > T)
+    if (tstep >= nt)
       break;
     for (c = 0; c < 2; c++)
       for (d = 0; d < 3; d++) {
@@ -379,7 +389,7 @@ int main(int argc, char **argv) {
               um[c][d][l] = v;
             }
           }
-    t += dt;
     tstep++;
+    t = tstep * dt;
   }
 }

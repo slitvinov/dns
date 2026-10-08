@@ -31,6 +31,15 @@ static void c2r(fftw_plan fplan, long n3f, fftw_complex *hat, double *real,
 static double cabs2(fftw_complex z) {
   return creal(z) * creal(z) + cimag(z) * cimag(z);
 }
+static long steps(const char *opt, double x, double dt) {
+  long n = lround(x / dt);
+  if (fabs(n * dt - x) > 1e-9 * x) {
+    fprintf(stderr, "fourier: error: %s %g is not a multiple of -s %g\n", opt, x,
+            dt);
+    exit(1);
+  }
+  return n;
+}
 int main(int argc, char **argv) {
   (void)argc;
   fftw_plan fplan, bplan;
@@ -41,7 +50,7 @@ int main(int argc, char **argv) {
   fftw_complex *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
       *U_hat1, *V_hat, *V_hat0, *V_hat1, *W_hat, *W_hat0, *W_hat1, *dump_hat;
   int *dealias, rk, Verbose, Dump;
-  long idump, tstep;
+  long idump, tstep, nt;
   size_t offset;
   size_t ivar;
   double *CU, *CV, *CW, *kk, *kx, *kz, *U, *U_tmp, *V, *V_tmp, *W, *W_tmp,
@@ -252,6 +261,7 @@ int main(int argc, char **argv) {
 
   idump = 0;
   t = 0.0;
+  nt = steps("-t", T, dt);
   tstep = 0;
   for (;;) {
     if (tstep % 10 == 0) {
@@ -349,7 +359,7 @@ int main(int argc, char **argv) {
         idump++;
       }
     }
-    if (t > T)
+    if (tstep >= nt)
       break;
 #pragma omp parallel for
     for (long k = 0; k < n3f; k++) {
@@ -437,8 +447,8 @@ int main(int argc, char **argv) {
       V_hat[k] = V_hat1[k];
       W_hat[k] = W_hat1[k];
     }
-    t += dt;
     tstep++;
+    t = tstep * dt;
   }
   fftw_destroy_plan(fplan);
   fftw_destroy_plan(bplan);

@@ -151,6 +151,15 @@ __global__ static void total(int m, double *part) {
     part[2 * m + 1] = so[0];
   }
 }
+static long steps(const char *opt, double x, double dt) {
+  long n = lround(x / dt);
+  if (fabs(n * dt - x) > 1e-9 * x) {
+    fprintf(stderr, "fourier: error: %s %g is not a multiple of -s %g\n", opt, x,
+            dt);
+    exit(1);
+  }
+  return n;
+}
 int main(int argc, char **argv) {
   (void)argc;
   cufftHandle fplan, bplan;
@@ -161,7 +170,7 @@ int main(int argc, char **argv) {
   double2 *curlX, *curlY, *curlZ, *dU, *dV, *dW, *P_hat, *U_hat, *U_hat0,
       *U_hat1, *V_hat, *V_hat0, *V_hat1, *W_hat, *W_hat0, *W_hat1, *swap;
   int rk, Verbose, Dump;
-  long idump, tstep;
+  long idump, tstep, nt;
   size_t offset, wf, wb;
   size_t ivar;
   double *CU, *CV, *CW, *U, *V, *W, *dump, *part;
@@ -351,6 +360,7 @@ int main(int argc, char **argv) {
 
   idump = 0;
   t = 0.0;
+  nt = steps("-t", T, dt);
   tstep = 0;
   for (;;) {
     if (tstep % 10 == 0) {
@@ -463,7 +473,7 @@ int main(int argc, char **argv) {
         idump++;
       }
     }
-    if (t > T)
+    if (tstep >= nt)
       break;
     cuda(cudaMemcpy(U_hat0, U_hat, n3f * sizeof(double2),
                     cudaMemcpyDeviceToDevice),
@@ -513,8 +523,8 @@ int main(int argc, char **argv) {
     swap = W_hat;
     W_hat = W_hat1;
     W_hat1 = swap;
-    t += dt;
     tstep++;
+    t = tstep * dt;
   }
   cuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize");
   cufft(cufftDestroy(fplan), "cufftDestroy");
