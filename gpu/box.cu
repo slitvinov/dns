@@ -18,6 +18,7 @@ static const double B[] = {1432997174477.0 / 9575080441755.0,
 struct G {
   long nx, ny, nz, nzf, nf, nr;
   double ax, ay, az;
+  int f;
 };
 static void cuda(cudaError_t e, const char *what) {
   if (e != cudaSuccess) {
@@ -43,7 +44,12 @@ __device__ static void mode(G g, long l, long *i, long *j, long *k, double *kx,
   *ky = g.ay * wave(*j, g.ny);
   *kz = g.az * *k;
 }
-__device__ static int kept(G g, long i, long j, long k) {
+__device__ static double mask(G g, long i, long j, long k) {
+  if (g.f) {
+    double x = 2.0 * labs(wave(i, g.nx)) / g.nx, y = 2.0 * labs(wave(j, g.ny)) / g.ny,
+           z = 2.0 * k / g.nz;
+    return exp(-36 * (pow(x, 36) + pow(y, 36) + pow(z, 36)));
+  }
   return 3 * labs(wave(i, g.nx)) < g.nx && 3 * labs(wave(j, g.ny)) < g.ny &&
          3 * k < g.nz;
 }
@@ -76,7 +82,7 @@ __global__ static void cross(G g, double s, double *b0, double *b1, double *b2,
   b1[l] = w * p - u * r;
   b2[l] = u * q - v * p;
 }
-__global__ static void update(G g, double nu, double dt, double a, double b,
+__global__ static void update(G g, int last, double nu, double dt, double a, double b,
                               const double2 *f0, const double2 *f1,
                               const double2 *f2, double2 *u, double2 *v,
                               double2 *w, double2 *du, double2 *dv,
@@ -86,7 +92,7 @@ __global__ static void update(G g, double nu, double dt, double a, double b,
   if (l >= g.nf)
     return;
   mode(g, l, &i, &j, &k, &kx, &ky, &kz);
-  double kk = kx * kx + ky * ky + kz * kz, m = kept(g, i, j, k), visc = nu * kk;
+  double kk = kx * kx + ky * ky + kz * kz, m = mask(g, i, j, k), visc = nu * kk;
   double2 x = f0[l], y = f1[l], z = f2[l], p;
   x = make_double2(m * x.x, m * x.y);
   y = make_double2(m * y.x, m * y.y);
@@ -108,9 +114,10 @@ __global__ static void update(G g, double nu, double dt, double a, double b,
   du[l] = dx;
   dv[l] = dy;
   dw[l] = dz;
-  u[l] = make_double2(U.x + b * dx.x, U.y + b * dx.y);
-  v[l] = make_double2(V.x + b * dy.x, V.y + b * dy.y);
-  w[l] = make_double2(W.x + b * dz.x, W.y + b * dz.y);
+  double r = last && g.f ? m : 1;
+  u[l] = make_double2(r * (U.x + b * dx.x), r * (U.y + b * dx.y));
+  v[l] = make_double2(r * (V.x + b * dy.x), r * (V.y + b * dy.y));
+  w[l] = make_double2(r * (W.x + b * dz.x), r * (W.y + b * dz.y));
 }
 __device__ static void blockreduce(int K, int op, const double *v, double *s,
                                    double *out) {
@@ -131,8 +138,10 @@ __device__ static void blockreduce(int K, int op, const double *v, double *s,
 }
 __global__ static void norms(G g, const double2 *u, const double2 *v,
                              const double2 *w, double *out) {
-  __shared__ double s[3 * nthread];
-  double e[3] = {0, 0, 0};
+  __shared__ double s[6 * nthread];
+  double e[6] = {0, 0, 0, 0, 0, 0};
+  double fx = g.f ? 0.4 * g.nx : (g.nx - 1) / 3, fy = g.f ? 0.4 * g.ny : (g.ny - 1) / 3,
+         fz = g.f ? 0.4 * g.nz : (g.nz - 1) / 3;
   for (long l = blockIdx.x * (long)blockDim.x + threadIdx.x; l < g.nf;
        l += (long)gridDim.x * blockDim.x) {
     long i, j, k;
@@ -147,8 +156,14 @@ __global__ static void norms(G g, const double2 *u, const double2 *v,
     e[1] += kk * q;
     if (kk > 0)
       e[2] += q / sqrt(kk);
+    if (labs(wave(i, g.nx)) > 0.9 * fx)
+      e[3] += q;
+    if (labs(wave(j, g.ny)) > 0.9 * fy)
+      e[4] += q;
+    if (k > 0.9 * fz)
+      e[5] += q;
   }
-  blockreduce(3, 0, e, s, out);
+  blockreduce(6, 0, e, s, out);
 }
 __global__ static void peaks(G g, double s, double cx, double cy, double cz,
                              const double *b0, const double *b1,
@@ -190,7 +205,7 @@ int main(int argc, char **argv) {
   cufftHandle fplan, bplan;
   FILE *file;
   char path[FILENAME_MAX], *ipath, *rpath, *end, *name;
-  double nu, dt, T, t, dd, X, Y, Z, x, N, s, cx, cy, cz, kc, sums[3], mx[2],
+  double nu, dt, T, t, dd, X, Y, Z, x, N, s, cx, cy, cz, kc, sums[6], mx[2],
       *host, *dP, *P;
   double2 *u[3], *du[3], *b[6];
   long tstep, start, nd, nx, ny, nz, nt;
@@ -202,13 +217,19 @@ int main(int argc, char **argv) {
   X = Y = Z = 2;
   nu = dt = -1;
   T = dd = 0;
+  g.f = 0;
   while (*++argv != NULL && argv[0][0] == '-') {
     if (argv[0][1] == 'h') {
       fprintf(stderr,
               "Usage: box -x <nx> -y <ny> -z <nz> [-X <Lx/pi>] [-Y <Ly/pi>] "
               "[-Z <Lz/pi>] (-i <u.raw> | -r <dump u.STEP>) -n <viscosity> "
-              "-t <end time> -s <time step> [-d <dump interval>]\n");
+              "-t <end time> -s <time step> [-d <dump interval>] [-f (Hou-Li "
+              "filter instead of 2/3)]\n");
       exit(1);
+    }
+    if (argv[0][1] == 'f') {
+      g.f = 1;
+      continue;
     }
     if (argv[1] == NULL) {
       fprintf(stderr, "box: error: %s needs an argument\n", argv[0]);
@@ -294,8 +315,8 @@ int main(int argc, char **argv) {
   }
   for (int c = 0; c < 6; c++)
     cuda(cudaMalloc(&b[c], g.nf * sizeof(double2)), "cudaMalloc");
-  cuda(cudaMalloc(&dP, 3 * nblock * sizeof(double)), "cudaMalloc");
-  if ((P = (double *)malloc(3 * nblock * sizeof(double))) == NULL ||
+  cuda(cudaMalloc(&dP, 6 * nblock * sizeof(double)), "cudaMalloc");
+  if ((P = (double *)malloc(6 * nblock * sizeof(double))) == NULL ||
       (host = (double *)malloc(nx * ny * nz * sizeof(double))) == NULL) {
     fprintf(stderr, "box: error: malloc failed\n");
     exit(1);
@@ -354,7 +375,7 @@ int main(int argc, char **argv) {
     if (diag) {
       norms<<<nblock, nthread>>>(g, u[0], u[1], u[2], dP);
       launched("norms");
-      collect(3, 0, dP, P, sums);
+      collect(6, 0, dP, P, sums);
       peaks<<<nblock, nthread>>>(g, s, cx, cy, cz, (double *)b[0], (double *)b[1],
                                  (double *)b[2], (double *)b[3], (double *)b[4],
                                  (double *)b[5], dP);
@@ -370,9 +391,12 @@ int main(int argc, char **argv) {
                     kc * pow(nu * nu * nu / eps, 0.25),
                     u2 * sqrt(15 / (nu * eps)),
                     sqrt(10 * nu * E / eps),
-                    pi / (2 * u2) * sums[2] * s * s};
+                    pi / (2 * u2) * sums[2] * s * s,
+                    sums[3] / sums[0],
+                    sums[4] / sums[0],
+                    sums[5] / sums[0]};
       if (tstep == start)
-        printf("step t E Omega C wmax keta Rlambda lambda L\n");
+        printf("step t E Omega C wmax keta Rlambda lambda L tailx taily tailz\n");
       printf("% 10ld", tstep);
       for (int i = 0; i < (int)(sizeof q / sizeof *q); i++)
         printf(" % .16e", q[i]);
@@ -420,7 +444,7 @@ int main(int argc, char **argv) {
       launched("cross");
       for (int c = 0; c < 3; c++)
         cufft(cufftExecD2Z(fplan, (double *)b[c], b[c]), "cufftExecD2Z");
-      update<<<grid(g.nf), nthread>>>(g, nu, dt, A[r], B[r], b[0], b[1], b[2],
+      update<<<grid(g.nf), nthread>>>(g, r == 4, nu, dt, A[r], B[r], b[0], b[1], b[2],
                                       u[0], u[1], u[2], du[0], du[1], du[2]);
       launched("update");
     }

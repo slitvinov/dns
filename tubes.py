@@ -10,13 +10,14 @@ except ImportError:
     fft = np.fft
     kw = {}
 
-if len(sys.argv) != 5:
-    sys.stderr.write("usage: tubes.py nx ny nz u.raw\n")
+if len(sys.argv) not in (5, 11):
+    sys.stderr.write("usage: tubes.py nx ny nz u.raw [Lx/pi Ly/pi Lz/pi A w0 s]\n")
     sys.exit(1)
 nx, ny, nz = map(int, sys.argv[1:4])
 out = sys.argv[4]
-Lx, Ly, Lz = 6 * math.pi, 4 * math.pi, 2 * math.pi
-A, rc, w0 = 0.2, 0.666, 26.093
+X, Y, Z, A, w0, s0 = map(float, sys.argv[5:11]) if len(sys.argv) == 11 else (6, 4, 2, 0.2, 26.093, 1)
+Lx, Ly, Lz = X * math.pi, Y * math.pi, Z * math.pi
+rc = 0.666
 K = 0.5 * math.exp(2) * math.log(2)
 x = -Lx / 2 + Lx / nx * np.arange(nx)
 y = -Ly / 2 + Ly / ny * np.arange(ny)
@@ -32,14 +33,14 @@ def profile(r):
 
 r = np.linspace(0, rc, 200001)
 G = 2 * math.pi * np.trapezoid(profile(r) * r, r)
-sys.stderr.write("tubes.py: circulation %.6f, Re %.1f (nu = 0.001)\n" % (G, G / 0.001))
+sys.stderr.write("tubes.py: circulation %.6f\n" % G)
 
 wh = []
 for d in range(3):
     o = np.zeros((nx, ny, nz))
     for xc, al, sg in (-0.866, math.pi / 3, 1), (0.866, 2 * math.pi / 3, -1):
-        cx = xc + A * math.cos(al) * (1 + np.cos(z))
-        cy = A * math.sin(al) * (1 + np.cos(z))
+        cx = xc + A * math.cos(al) * (s0 + np.cos(z))
+        cy = A * math.sin(al) * (s0 + np.cos(z))
         f = sg * profile(np.sqrt((x[:, None, None] - cx) ** 2 + (y[None, :, None] - cy) ** 2))
         t = (-A * math.cos(al) * np.sin(z), -A * math.sin(al) * np.sin(z), np.ones(nz))[d]
         o += f * t
