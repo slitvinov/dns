@@ -451,13 +451,13 @@ static void collect(int K, const double *dP, double *P, double *sum) {
       sum[q] += P[b * K + q];
 }
 int main(int argc, char **argv) {
-  long M, tstep, ne, nd, kcut, nk;
+  long M, tstep, ne, nd, kcut, nk, start;
   int c, d;
   double nu, dt, T_end, t, x, e, dd, *dP, *P, *dE, *host, *tab, one;
   size_t ws;
   void *work;
   V u, du, Nv, acc, s;
-  char *end;
+  char *end, *rpath;
   (void)argc;
   M = 0;
   nu = -1;
@@ -465,15 +465,21 @@ int main(int argc, char **argv) {
   T_end = 0;
   e = 0;
   dd = 0;
+  rpath = NULL;
   while (*++argv != NULL && argv[0][0] == '-') {
     if (argv[0][1] == 'h') {
       fprintf(stderr, "Usage: etd -M <modes> -n <viscosity> -t <end time> -s "
-                      "<time step> [-e <spectrum interval>] [-d <dump interval>]\n");
+                      "<time step> [-e <spectrum interval>] [-d <dump interval>] "
+                      "[-r <dump u.STEP>]\n");
       exit(1);
     }
     if (argv[1] == NULL) {
       fprintf(stderr, "etd: error: %s needs an argument\n", argv[0]);
       exit(1);
+    }
+    if (argv[0][1] == 'r') {
+      rpath = *++argv;
+      continue;
     }
     x = strtod(argv[1], &end);
     if (*end != '\0') {
@@ -556,15 +562,48 @@ int main(int argc, char **argv) {
   for (int a = 0; a < 2; a++)
     for (int b = 0; b < 2; b++)
       cufft(cufftSetWorkArea(plans[a][b], work), "cufftSetWorkArea");
-  one = 1;
-  cuda(cudaMemcpy(u.a[ODD][0], &one, sizeof(double), cudaMemcpyHostToDevice),
-       "cudaMemcpy");
-  one = -1;
-  cuda(cudaMemcpy(u.a[ODD][1], &one, sizeof(double), cudaMemcpyHostToDevice),
-       "cudaMemcpy");
   host = NULL;
-  t = 0;
   tstep = 0;
+  if (rpath == NULL) {
+    one = 1;
+    cuda(cudaMemcpy(u.a[ODD][0], &one, sizeof(double), cudaMemcpyHostToDevice),
+         "cudaMemcpy");
+    one = -1;
+    cuda(cudaMemcpy(u.a[ODD][1], &one, sizeof(double), cudaMemcpyHostToDevice),
+         "cudaMemcpy");
+  } else {
+    FILE *file;
+    const char *b = strrchr(rpath, '.');
+    if (b == NULL || (tstep = strtol(b + 1, &end, 10), *end != '\0' || end == b + 1)) {
+      fprintf(stderr, "etd: error: '%s' is not named u.STEP\n", rpath);
+      exit(1);
+    }
+    if ((host = (double *)malloc(n3 * sizeof(double))) == NULL) {
+      fprintf(stderr, "etd: error: malloc failed\n");
+      exit(1);
+    }
+    if ((file = fopen(rpath, "r")) == NULL) {
+      fprintf(stderr, "etd: error: fail to open '%s'\n", rpath);
+      exit(1);
+    }
+    for (c = 0; c < 2; c++)
+      for (d = 0; d < 3; d++) {
+        if (fread(host, sizeof(double), n3, file) != (size_t)n3) {
+          fprintf(stderr, "etd: error: fail to read '%s' (wrong -M?)\n", rpath);
+          exit(1);
+        }
+        cuda(cudaMemcpy(u.a[c][d], host, n3 * sizeof(double),
+                        cudaMemcpyHostToDevice),
+             "cudaMemcpy");
+      }
+    if (fgetc(file) != EOF) {
+      fprintf(stderr, "etd: error: '%s' is too long (wrong -M?)\n", rpath);
+      exit(1);
+    }
+    fclose(file);
+  }
+  t = tstep * dt;
+  start = tstep;
   for (;;) {
     for (c = 0; c < 2; c++) {
       curl<<<grid(n3), nthread>>>(c, N1, n3, u, w);
@@ -655,7 +694,7 @@ int main(int argc, char **argv) {
       }
       free(E);
     }
-    if (nd > 0 && tstep % nd == 0) {
+    if (nd > 0 && tstep % nd == 0 && (rpath == NULL || tstep != start)) {
       char path[FILENAME_MAX];
       FILE *file;
       if (host == NULL &&
