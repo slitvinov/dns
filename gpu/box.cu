@@ -19,6 +19,7 @@ struct G {
   long nx, ny, nz, nzf, nf, nr;
   double ax, ay, az;
   int f;
+  double fp;
 };
 static void cuda(cudaError_t e, const char *what) {
   if (e != cudaSuccess) {
@@ -114,7 +115,7 @@ __global__ static void update(G g, int last, double nu, double dt, double a, dou
   du[l] = dx;
   dv[l] = dy;
   dw[l] = dz;
-  double r = last && g.f ? m : 1;
+  double r = last && g.f ? (g.fp == 1 ? m : pow(m, g.fp)) : 1;
   u[l] = make_double2(r * (U.x + b * dx.x), r * (U.y + b * dx.y));
   v[l] = make_double2(r * (V.x + b * dy.x), r * (V.y + b * dy.y));
   w[l] = make_double2(r * (W.x + b * dz.x), r * (W.y + b * dz.y));
@@ -205,7 +206,7 @@ int main(int argc, char **argv) {
   cufftHandle fplan, bplan;
   FILE *file;
   char path[FILENAME_MAX], *ipath, *rpath, *end, *name;
-  double nu, dt, T, t, dd, X, Y, Z, x, N, s, cx, cy, cz, kc, sums[6], mx[2],
+  double nu, dt, T, t, dd, F, X, Y, Z, x, N, s, cx, cy, cz, kc, sums[6], mx[2],
       *host, *dP, *P;
   double2 *u[3], *du[3], *b[6];
   long tstep, start, nd, nx, ny, nz, nt;
@@ -218,13 +219,15 @@ int main(int argc, char **argv) {
   nu = dt = -1;
   T = dd = 0;
   g.f = 0;
+  F = 0;
   while (*++argv != NULL && argv[0][0] == '-') {
     if (argv[0][1] == 'h') {
       fprintf(stderr,
               "Usage: box -x <nx> -y <ny> -z <nz> [-X <Lx/pi>] [-Y <Ly/pi>] "
               "[-Z <Lz/pi>] (-i <u.raw> | -r <dump u.STEP>) -n <viscosity> "
               "-t <end time> -s <time step> [-d <dump interval>] [-f (Hou-Li "
-              "filter instead of 2/3)]\n");
+              "filter instead of 2/3)] [-F <dt0> (filter "
+              "the solution as m^(dt/dt0) per step: same damping per unit time as -s dt0)]\n");
       exit(1);
     }
     if (argv[0][1] == 'f') {
@@ -279,6 +282,9 @@ int main(int argc, char **argv) {
     case 'd':
       dd = x;
       break;
+    case 'F':
+      F = x;
+      break;
     default:
       fprintf(stderr, "box: error: unknown option '%s'\n", *argv);
       exit(1);
@@ -295,6 +301,7 @@ int main(int argc, char **argv) {
   g.ny = ny;
   g.nz = nz;
   g.nzf = nz / 2 + 1;
+  g.fp = F > 0 ? dt / F : 1;
   g.nf = nx * ny * g.nzf;
   g.nr = 2 * g.nf;
   g.ax = 2 / X;
