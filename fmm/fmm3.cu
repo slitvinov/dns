@@ -1057,6 +1057,10 @@ static int scan(int *d, int n) {
   ck(cudaMemcpy(d + n, &total, sizeof(int), cudaMemcpyHostToDevice), "cudaMemcpy");
   return total;
 }
+static void *pmalloc(size_t n) {
+  void *p;
+  return cudaMallocHost(&p, n) == cudaSuccess ? p : NULL;
+}
 int main(int argc, char **argv) {
   T t;
   FILE *file;
@@ -1501,7 +1505,7 @@ int main(int argc, char **argv) {
     int *vo = (int *)malloc((nb + 1) * sizeof(int)), *vl = (int *)malloc((nV + 1) * sizeof(int)),
         *bh = (int *)malloc(3 * nb * sizeof(int)), *lvh = (int *)malloc(nb * sizeof(int));
     ck(cudaMemcpy(vo, t.vo, (nb + 1) * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
-    ck(cudaMemcpy(vl, t.vl, (nV + 1) * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
+    ck(cudaMemcpy(vl, t.vl, nV * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
     ck(cudaMemcpy(bh, t.bx, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
     ck(cudaMemcpy(bh + nb, t.by, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
     ck(cudaMemcpy(bh + 2 * nb, t.bz, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
@@ -1647,7 +1651,7 @@ int main(int argc, char **argv) {
     }
     fclose(lf);
     int *chh = (int *)malloc(nb * sizeof(int)), *cnt2 = (int *)malloc(nb * sizeof(int)), *lvh = (int *)malloc(nb * sizeof(int)), *st2 = (int *)malloc(nb * sizeof(int)), *bh = (int *)malloc(3 * nb * sizeof(int));
-    double *xs = (double *)malloc(3 * N * sizeof(double)), *cxh = (double *)malloc(3 * nb * sizeof(double));
+    double *xs = (double *)pmalloc(3 * N * sizeof(double)), *cxh = (double *)malloc(3 * nb * sizeof(double));
     ck(cudaMemcpy(chh, t.ch, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
     ck(cudaMemcpy(cnt2, t.count, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
     ck(cudaMemcpy(lvh, t.lev, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
@@ -1839,8 +1843,8 @@ int main(int argc, char **argv) {
     launched("quad");
   }
   ck(cudaEventRecord(ev[8]), "cudaEventRecord");
-  double *ph = (double *)malloc(t.nc * N * sizeof(double)), *gr = (double *)malloc(3 * t.nc * N * sizeof(double));
-  long *ph_ = (long *)malloc(N * sizeof(long));
+  double *ph = (double *)pmalloc(t.nc * N * sizeof(double)), *gr = (double *)pmalloc(3 * t.nc * N * sizeof(double));
+  long *ph_ = (long *)pmalloc(N * sizeof(long));
   if (ph == NULL || gr == NULL || ph_ == NULL) {
     fprintf(stderr, "fmm3: error: malloc failed\n");
     exit(1);
@@ -1850,7 +1854,7 @@ int main(int argc, char **argv) {
   ck(cudaMemcpy(ph_, perm, N * sizeof(long), cudaMemcpyDeviceToHost), "cudaMemcpy");
   double *ulv = NULL;
   if (ul != NULL) {
-    ulv = (double *)malloc(3 * N * sizeof(double));
+    ulv = (double *)pmalloc(3 * N * sizeof(double));
     ck(cudaMemcpy(ulv, ul, 3 * N * sizeof(double), cudaMemcpyDeviceToHost), "cudaMemcpy");
   }
   int no = biot ? 3 : 4;
@@ -1890,7 +1894,7 @@ int main(int argc, char **argv) {
   ck(cudaMemcpy(cnt, t.count, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
   ck(cudaMemcpy(chh, t.ch, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
   ck(cudaMemcpy(uoh, t.uo, (nb + 1) * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
-  ck(cudaMemcpy(ulh, t.ul, (nU + 1) * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
+  ck(cudaMemcpy(ulh, t.ul, nU * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
   for (int b = 0; b < nb; b++) {
     ne += cnt[b] > 0;
     nlf += chh[b] < 0 && cnt[b] > 0;
