@@ -1,0 +1,303 @@
+FMM stage 1: 2D Greengard-Rokhlin fast multipole method, numpy, CPU
+
+Purpose: velocity of vortex particles (Biot-Savart) in O(N), as the
+reference for the CUDA/MPI versions that follow.
+
+Files
+  direct.py   O(N^2) direct sum. u - i v = sum_j q_j K(r)/(z - z_j),
+              q_j = Gamma_j/(2 pi i); stream function psi = Im sum q_j log(z - z_j)
+              (point vortex psi only). Cores: point, gauss
+              (K = 1 - exp(-r^2/delta^2)), algebraic (K = r^2/(r^2+delta^2)).
+  fmm2.py     complex-log expansions with p terms: P2M, M2M, M2L, L2L, L2P,
+              P2L, M2P (multipole evaluation), P2P.
+              uniform(): full quadtree with L levels, M2L over the 27-box
+              interaction lists.
+              adaptive(): Morton-key quadtree, leaves hold <= s particles,
+              Carrier-Greengard-Rokhlin U, V, W, X lists.
+              The far field uses point vortices; the core is used in P2P only.
+  test2.py    all tests; writes out/*.txt (%.17g) and ~/dns/img/fmm/*.png.
+
+Run
+  python3 test2.py              (about 10 minutes on the Mac; log in out/test2.log)
+  python3 fmm2.py -n 100000 -p 16
+  python3 direct.py -n 1000
+
+Verified (tables in out/)
+  op_exact.txt   M2M and L2L are exact identities: 2.3e-16 and 2.2e-16 at
+                 p = 4..30.
+  op_p2m.txt     multipole evaluation, box radius rho = sqrt(1/2), targets at
+  op_m2l.txt     |z| = 2 and 3. M2L for offsets (2,0), (2,1), (2,2), (3,0).
+  op_p2l.txt     P2L. Errors fall geometrically, below
+                 (rho/(D-rho))^(p+1) except at p = 2, where the bound's
+                 constant prefactor (omitted here) matters.
+  err_vs_p.txt   full FMM, N = 20000, all points against the direct sum, max
+                 relative error of the velocity:
+                   p      4       8       12      16      20      24      30
+                   unif   3.2e-4  7.5e-6  2.0e-7  7.6e-9  3.7e-10 1.3e-11 7.7e-14
+                 The same for the adaptive tree on uniform, two thin sheets,
+                 and a 1e-4 Gaussian blob plus background (tree depth 17).
+                 The blob is about 3x worse at equal p.
+                 Fitted rate 0.436 per order; worst-case bound
+                 rho/(2-rho) = 0.547.
+  highp.log      accuracy floor 1.2e-15 at p >= 38. Unscaled coefficients
+                 show no overflow or round-off growth up to p = 50 and depth 17.
+  p_needed.txt   p for max relative velocity error 1e-6 / 1e-10 / 1e-14:
+                 12 / 22-24 / 34.
+  core.txt       Gaussian blobs, uniform tree with leaf size h = 1/16, p = 30.
+                 The far-field point-vortex error tracks exp(-(h/delta)^2)
+                 (about 30x below it):
+                   delta/h  0.2      0.25    0.3     0.4     0.5
+                   err      2e-12    2.7e-9  4.0e-7  7.7e-5  1.0e-3
+                 Rule: delta <= 0.2 h_leaf, or add the core correction for
+                 well-separated pairs.
+  time_vs_N.txt  p = 16, one Mac core, numpy:
+                   N        1e4     1e5    1e6
+                   uniform  0.14 s  0.85 s 7.7 s
+                   adaptive 0.19 s  1.2 s  19.5 s (7.4 s of it is the Python tree build)
+                   direct   1.6 s   153 s  6e4 s (estimated from 1000 targets)
+                 log-log slopes for N >= 1e4: uniform 0.87, adaptive 1.02,
+                 direct 2.28. The FMM is faster than the direct sum from
+                 N of about 2000.
+                 Error does not grow with N (1e-8 to 7e-8 at p = 16).
+  ops_per_level.txt  N = 1e6, s = 40: about 27 M2L per box at the deep levels,
+                 1.74e6 M2L at the leaf level, 1.4e8 P2P pair interactions.
+  leafsize.txt   N = 3e5, p = 16. Without the tree build, the fastest leaf
+                 size is s = 20 (P2P 1.2 s + M2L etc. 0.8 s).
+                 P2P dominates the run time at s >= 40.
+
+Notes
+  psi from the FMM is the point-vortex stream function. The log terms carry
+  no branch error because Gamma is real: Im(q log z) = -Gamma ln|z|/(2 pi).
+  The tree is non-periodic, over the bounding square of the particles.
+
+FMM stage 2: the same 2D FMM in CUDA on one GPU (fmm2.cu)
+
+Files
+  fmm2.cu    one CUDA program in the box.cu style. Input and output are raw
+             doubles, N x (x, y, Gamma) in and N x (u, v, psi) out.
+             Options: -p terms, -s max per leaf, -D max depth (20),
+             -d Gaussian core, -t timings, -c m (direct-sum check of m
+             targets on the GPU).
+             - Morton keys and a thrust stable radix sort on the GPU.
+             - Level-by-level tree build: binary search for counts, a scan
+               for the children.
+             - U/V/W/X lists in two passes (count, scan, fill), one thread
+               per box.
+             - P2M, M2M, M2L, P2L, L2L: one thread per (box, coefficient),
+               deterministic, no atomics. Translation matrices per level and
+               offset (49 for M2L) are built on the host.
+             - L2P and M2P: one thread per particle.
+             - P2P: one block of NW = 64 threads per leaf, with the source
+               leaves staged through shared memory.
+  gen2.c     particle generator (uniform, sheets, blob) for large N on
+             FASRC, which has no numpy.
+  gate2.py   make: inputs plus fmm2.py references. cmp: compares the GPU,
+             fmm2.py and the direct sum.
+  Makefile   make fmm2 gen2 (sm_80 + sm_90). FASRC:
+             module load cuda/12.9.1-fasrc01.
+
+Gate: same tree, same answer (out/gate2_tree.txt, out/gate2_cmp.txt)
+  The tree and the lists are identical to fmm2.py: box count, depth, U, V,
+  W and X counts in all 6 cases.
+  GPU against fmm2.py, max relative difference of the velocity:
+    uniform N=2e4 p=16       7.9e-16
+    uniform N=2e4 p=24       5.5e-16
+    sheets  N=2e4 p=16       3.6e-16
+    uniform N=2e5 p=16       8.8e-16
+    blob (tree depth 17) p=16 6.0e-14, p=24 1.8e-13
+  Blob cases are at the problem's own round-off level. Moving every input
+  coordinate by 1 ulp changes the exact direct sum by 1.1e-12 to 2.3e-12.
+  With -fmad=false the GPU-Python difference drops 2-5x.
+  Bug found and fixed: building the M2L table as 1/z^k overflowed |z^k|^2
+  at depth 17 (NaN). It now uses powers of 1/z.
+
+Time against N (out/stage2_tune.txt, out/scale1.log)
+  One A100-SXM4-80GB, uniform particles, s = 64 (s = 32 for N <= 1e6),
+  NW = 64. GPU compute time excludes reading the file and the copies to
+  and from the host.
+    N      p=16     p=24     error p=24 (direct check)
+    1e4    0.007 s  0.016 s  1.5e-10
+    1e5    0.016 s  0.022 s  5.5e-11
+    1e6    0.020 s  0.038 s  8.3e-11
+    1e7    0.13 s   0.154 s  8.0e-11
+    1e8    0.97 s   1.11 s   7.7e-11 (p=16: 2.9e-9)
+  About 11 ns per particle at 1e8 and p = 24. Below about 1e6 the time is
+  dominated by fixed overheads: the host translation tables and launches.
+  At 1e8 and p = 24: P2P 0.51 s, M2L 0.35 s (1.5e8 V pairs), sort 0.05 s,
+  tree and lists 0.06 s, M2M and P2M 0.09 s. The copy to the host
+  (2.4 GB) adds 0.86 s.
+  M2L runs at about 1.1 TFLOP/s, 11% of the FP64 peak; this is the next
+  thing to optimise.
+
+Tuning (N = 1e7, p = 24)
+  leaf size s:  16 -> 0.206 s, 32 -> 0.224, 64 -> 0.154, 128 -> 0.161,
+                256 -> 0.32. Default: s = 64.
+  P2P block NW: 32 and 64 are equal; 128 is 30% slower at 1e8. Default: 64.
+  Clustered input, N = 1e7, p = 24:
+    blob (depth 20): 0.19 s, error 1.2e-11 to 1.6e-10
+    sheets:          0.21 s, error 4.3e-11
+  The blob needs p = 26 to be safely under 1e-10, as in stage 1, where
+  blobs ran about 3x worse at equal p.
+
+FMM stage 3a: 3D Laplace and Biot-Savart, spherical harmonics, rotation-based translations
+
+Files
+  harm3.py   Dehnen (2014) solid harmonics, by recurrence:
+               regular   Ups_n^m = (-1)^m r^n P_n^m e^{im phi} / (n+m)!
+               irregular Thet_n^m = (-1)^m (n-m)! P_n^m e^{im phi} / r^(n+1)
+             1/|r-x| = sum Ups_n^m(x) conj(Thet_n^m(r)).
+             Rotation matrices: Wigner d = exp(beta A) with A = -i J_y,
+             mapped into this basis as G = c^-1 d^T c, c = sqrt((n-m)!(n+m)!).
+             The convention was measured by least squares, then checked to
+             1e-14 up to n = 40.
+  direct3.py direct Laplace potential and gradient, and the Biot-Savart
+             velocity u = sum alpha x (x - x_j) / (4 pi r^3), with an optional
+             Gaussian core.
+  fmm3.py    numpy reference:
+             - P2M, P2L, M2P/L2P (potential and gradient);
+             - M2M/L2L/M2L, both direct O(p^4) and rotation-based O(p^3)
+               (rotate to z, axial shift, rotate back);
+             - adaptive octree with U/V/W/X lists;
+             - Biot-Savart as 3 Laplace FMMs with an analytic curl.
+             M2L uses the full truncation of Cheng-Greengard-Rokhlin (CGR99):
+             multipole and local degree <= p, Thet up to degree 2p.
+  fmm3.cu    CUDA, one file:
+             - Morton octree and two-pass lists on the GPU (the stage-2 code
+               in 3D);
+             - M2M/M2L/L2L: one block per box, shared-memory rotate-shift-
+               rotate; rotation tables per offset built on the host (343 M2L
+               directions, 8+8 for M2M/L2L);
+             - P2M/P2L/L2P/M2P use per-m column recurrences, so no atomics;
+             - P2P: one block per leaf.
+             -b runs Biot-Savart; -c m checks the first m particles against a
+             direct sum on the GPU (eq. 57 of CGR99 plus max error).
+  gen3.c     particles: cube, sphere (random polar angles, so concentrated at
+             the poles), cylinder (r 0.05, h 1), sheets, blob; charges
+             U(-0.5,0.5) or Biot alpha ~ N(0,1).
+  gate3.py   CUDA against fmm3.py.
+  sweep3.sh  error against p, and the CGR99 runs.
+  test3.py   numpy operator gates.
+
+Operator gates, numpy (out/3_op_exact.txt, 3_op_bounds.txt, 3_mirror.txt)
+  M2M (direct and rotated) against P2M about the parent: 2.5e-16 to 3.6e-16,
+    p = 4..30.
+  L2L (rotated) keeps potential and gradient to 1e-15 to 4e-15.
+  M2L rotated against direct O(p^4): 6e-15 (p=4), 9e-12 (p=16; the high
+    coefficients are of size (n+k)!/rho^(n+k+1)).
+  Truncation is below the bounds (5.17) P2M, (5.24) M2M and (5.27) M2L for
+    every p and every offset (2,0,0), (2,1,0), (2,2,2), (3,0,0), with sources
+    and targets at the cube corners.
+  The worst single M2L, offset (2,0,0) with corner sources and corner
+    targets, decays only about 0.69 per order (close to the 3/4 of the
+    bound). The other offsets decay much faster.
+  Mirror rules hold exactly (0.0):
+    multipole and local, z -> -z: (-1)^(n+m) c
+    x -> -x: (-1)^m conj(c)
+    y -> -y: conj(c)
+  The symmetry option is designed but off.
+
+Gate: CUDA = numpy (gate3.py, hal A100)
+  Same tree and identical U/V/W/X counts in all 6 cases.
+  Max relative difference: 3e-16 to 4e-15 (cube, sheets, Biot-Savart);
+  3e-14 for the blob potential (the conditioning level, as in stage 2).
+
+Error against p in 3D (out/3_err_vs_p.txt, 3_rate.txt, img/fmm/err3_vs_p.png)
+  N = 20000, s = 40, all points against the GPU direct sum.
+  Fitted rate per order, p = 8..24:
+    potential rel L2   0.51-0.52
+    velocity max rel   0.56-0.62
+  So the decay is close to the multipole-only (sqrt3/3)^p = 0.577^p, not the
+  worst-case (3/4)^p.
+  p = 30 (cube): potential L2 5.5e-11, velocity max 8.1e-11.
+  p needed for 1e-10:
+                 potential L2   velocity max
+    cube         30             30
+    blob         28             30
+    sheets       28             20
+  Gradient and potential max errors decay more slowly at high p (cube
+  gradient max 4.6e-10 at p = 30).
+
+CGR99 reproduction (out/3_cgr.txt)
+  Their tables I-IX: cube, sphere, cylinder, with their p/s pairs 10/40,
+  19/100, 29/180, N = 2e4..1e6, error eq. 57 on the first 100 particles.
+  The "complicated object" tables X-XII are not reproducible (no geometry).
+  Tree: levels agree in 40 of 42 runs; nonempty box counts agree within a few
+    percent. The two differences are sphere 5e5 p19 (11 vs 10) and cylinder
+    2e4 p19 (6 vs 5): different random samples.
+  Error at the same p:
+    p = 10  ours 6e-7 to 7e-6   against their 2.7e-4 to 8.4e-4  (100-1000x
+                                                                 smaller)
+    p = 19  ours 1e-9 to 4e-8   against their 2.3e-7 to 7e-7    (10-100x)
+    p = 29  ours 3.6e-12 to 1.8e-10 against their 2.8e-11 to 2.8e-10 (ratio
+            0.02 to 3, median about 0.15)
+  Why: CGR99 pick an exponential (plane-wave) quadrature for 3, 6 or 9 digits.
+  At 3 and 6 digits that quadrature, not p, sets their error (and two of
+  their 6-digit tables are in single precision). Our M2L is exact up to the
+  multipole truncation. At 9 digits both schemes are limited by the same
+  p = 29 truncation and agree.
+  Work: 65-161 M2L per nonempty box (189 maximum for a uniform interior),
+  170-2900 P2P pairs per particle.
+  GPU time (A100, without file I/O), p = 29, N = 5e5: about 1.2 s compute,
+  of which M2L is about 1.0 s. The host rotation tables add 4.2 s (computed
+  once; to be cached or moved to the GPU).
+
+FMM stage 3, step A (M2L speed) and step B (periodic box); normalised arithmetic
+  fmm3.cu now needs -T <tables from tables.py, mpmath 50 digits>.
+  Coefficients are normalised and scaled per box, so every stored number is
+  O(1) and nothing is a factorial at run time (DERIV.md sections 5-6).
+  M2L modes:
+    FMM_M2L=1  rotation, half spectrum (default)
+    FMM_M2L=2  dense cuBLAS ZGEMM per offset; faster for p >= 25.
+  Periodic: -P <far table from periodicn.py> -A <cube edge>. The cell is a
+  forest of n1 x n2 x n3 root cubes; 6pi x 4pi x 2pi is 3 x 2 x 1 with
+  A = 2pi. The near region is tree-handled (cube offsets <= 1, with image
+  shifts); the far region is one operator per root offset, plus the exact
+  (2pi/3V) sum q|x-y|^2 term.
+  -g prints max/min |coefficient| per level and order, and counts
+  non-finite and subnormal values.
+  Files:
+    tables.py     translation and rotation tables (mpmath)
+    periodicn.py  far tables (split Ewald, normalised)
+    periodic.py   point-charge Ewald reference and the old tables
+    harmn.py, fmmn.py  numpy normalised reference
+    gate3.py      CUDA vs numpy
+    gateP.py      periodic vs Ewald
+    deep.sh       20-level test
+    bench2.sh     benchmark
+    kahan.sh      compensated-summation test
+  Results: DERIV.md section 8; out/B_tests.txt; out/rot_highprec_check.txt.
+
+Lattice near field (fmm3.cu -L <neartab.py table>, -O 8 order-8 core)
+  Uniform B^3 leaf blocks of cell-centred nodes; the near field is a
+  precomputed per-offset linear map. FMM_NEAR=gemm (default) | fft.
+  specref2.py gives the reference fields (regularised particles, and the true
+  spectral velocity). lat1.sh / lat2.sh run the sweeps; results are in
+  DERIV.md section 10 and out/lat*.out.
+
+Lattice speed-ups (fmm3.cu -F, -G; derivations in DERIV.md section 11)
+  -F <leaftab.py -B 8 -p P table>  P2M and L2P (with the curl) as two fixed
+       real matrices applied by DGEMM to all leaves (needs -L).
+  -G <m2ltab.py -p P table>  M2L as 26 GEMMs per level on shifted views of a
+       padded, child-stacked copy of M (needs a uniform tree; with -G it is
+       the default, FMM_M2L=1 forces the rotation kernel).
+  Near field (-L, GEMM mode, always on): 6 of 9 products, padded leaf grid,
+       no per-offset gather/combine.
+  Tables: mpmath 40 digits, each entry rounded once (leaftab: 2-20 s,
+  m2ltab: 1-20 s for p 8-20).
+  Gates (out/opt_*.txt): velocity vs the previous code (fmm3_pinned.cu.bak)
+  <= 9.7e-15 max relative at 1e8 p 20 (<= 4.8e-15 at 1.26e7); identical trees
+  and U/V/W/X lists; errors vs the exact regularised velocity unchanged (192
+  grid p 12: 6.073e-6, p 20: 4.869e-8); default path bitwise identical
+  (cube, blob); gateP.py identical; -G on uniform non-lattice trees <= 1e-17.
+  Kernel time (nsys), tube lattice, periodic 3x2x1, B 8, Kc 1:
+                       GH200 (gh)                     A100 PCIe (hal GPU 3)
+    N       p    before      after      ns/p          before    after    ns/p
+    1.26e7  12   478 ms      79 ms      38.0 -> 6.2    887      247     70.5 -> 19.6
+    1.26e7  16   697        122         55.4 -> 9.7   1533      398    121.8 -> 31.6
+    1.26e7  20  1063        207         84.5 -> 16.5  2719      692    216.1 -> 55.0
+    1.0e8   12  3771        561         37.5 -> 5.6   7082     1864     70.4 -> 18.5
+    1.0e8   16  5524        889         54.9 -> 8.8  12226     2977    121.5 -> 29.6
+    1.0e8   20  8435       1482         83.8 -> 14.7 21754     5134    216.1 -> 51.0
+  GH200 1e8 split (ms, before -> after): P2M 667 -> 6.4 (p 12), 1671 -> 11.8
+  (p 20); L2P 401 -> 11.6, 1058 -> 27; M2L 2077 -> 164, 5031 -> 1010; near
+  562 -> 314 (6 of 9 alone: 468).

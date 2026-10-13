@@ -845,18 +845,128 @@ __global__ static void lgath(int nl, int B3, const int *src, const int *start, c
   int i = j % B3, col = j / B3, b = col / 3, c = col % 3, s = src[b];
   X[j] = s < 0 ? 0 : q[((long)start[s] + i) * 3 + c];
 }
-__global__ static void lcomb(int nl, int B3, const int *start, const double *Y, double *ul) {
+__device__ static long bidx(T t, int l, long x, long y, long z) {
+  long msk = (1L << l) - 1, r = ((x >> l) * t.n2 + (y >> l)) * t.n3 + (z >> l);
+  return (r << (3 * l)) | morton(x & msk, y & msk, z & msk, l);
+}
+__device__ static double2 iget(const double2 *I, int J, int q) {
+  if (q >= 0)
+    return I[J * (J + 1) / 2 + q];
+  return scl(cj(I[J * (J + 1) / 2 - q]), q % 2 ? -1 : 1);
+}
+__global__ static void mkA(int p, const double2 *I, const double *fe, double *A) {
   long j = blockIdx.x * (long)blockDim.x + threadIdx.x;
-  if (j >= (long)nl * B3)
+  int nh = (p + 1) * (p + 2) / 2, H = 16 * nh, nt = (p + 1) * (p + 1), nj = (2 * p + 1) * (2 * p + 2) / 2;
+  if (j >= 26L * H * H)
     return;
-  int i = j % B3, b = j / B3;
-  long n3 = (long)nl * B3 * 3;
-  const double *Yx = Y, *Yy = Y + n3, *Yz = Y + 2 * n3;
-  long cx = ((long)b * 3) * B3 + i, cy = cx + B3, cz = cx + 2 * B3;
-  long o = ((long)start[b] + i) * 3;
-  ul[o] += Yz[cy] - Yy[cz];
-  ul[o + 1] += Yx[cz] - Yz[cx];
-  ul[o + 2] += Yy[cx] - Yx[cy];
+  int R = j % H, C = (j / H) % H, d = j / H / H;
+  d += d >= 13;
+  int q = R / (2 * nh), rr = R % (2 * nh), qs = C / (2 * nh), cc = C % (2 * nh);
+  int ox = 2 * (d / 9 - 1) + ((qs >> 2) & 1) - ((q >> 2) & 1), oy = 2 * ((d / 3) % 3 - 1) + ((qs >> 1) & 1) - ((q >> 1) & 1), oz = 2 * (d % 3 - 1) + (qs & 1) - (q & 1);
+  double v = 0;
+  if (abs(ox) > 1 || abs(oy) > 1 || abs(oz) > 1) {
+    int n, m, k, l;
+    hnm(rr / 2, &n, &m);
+    hnm(cc / 2, &k, &l);
+    const double2 *Io = I + (long)((ox + 3) * 49 + (oy + 3) * 7 + oz + 3) * nj;
+    double2 T1 = scl(iget(Io, n + k, m - l), fe[(long)ix(n, m) * nt + ix(k, l)] * (l % 2 ? -1 : 1)), T2 = mk(0, 0);
+    if (l > 0)
+      T2 = scl(iget(Io, n + k, m + l), fe[(long)ix(n, m) * nt + ix(k, -l)]);
+    if (rr % 2 == 0)
+      v = cc % 2 == 0 ? T1.x + T2.x : T2.y - T1.y;
+    else
+      v = cc % 2 == 0 ? T1.y + T2.y : T1.x - T2.x;
+  }
+  A[j] = v;
+}
+__global__ static void mpack(T t, int l, int lo, int3 ax, int3 D, double *S) {
+  int nh = (t.p + 1) * (t.p + 2) / 2;
+  long j = blockIdx.x * (long)blockDim.x + threadIdx.x, nc = (long)(D.x + 2) * (D.y + 2) * (D.z + 2);
+  if (j >= nc * t.nc * 8 * nh)
+    return;
+  int h = j % nh, q = (j / nh) % 8, c = (j / nh / 8) % t.nc, a[3] = {ax.x, ax.y, ax.z};
+  long cell = j / nh / 8 / t.nc, u[3], P[3];
+  u[2] = cell % (D.z + 2);
+  u[1] = (cell / (D.z + 2)) % (D.y + 2);
+  u[0] = cell / ((long)(D.z + 2) * (D.y + 2));
+  for (int k = 0; k < 3; k++)
+    P[a[k]] = u[k] - 1;
+  long NX = (long)t.n1 << l, NY = (long)t.n2 << l, NZ = (long)t.n3 << l;
+  long x = 2 * P[0] + ((q >> 2) & 1), y = 2 * P[1] + ((q >> 1) & 1), z = 2 * P[2] + (q & 1);
+  double2 v = mk(0, 0);
+  if (t.per) {
+    x = (x + NX) % NX;
+    y = (y + NY) % NY;
+    z = (z + NZ) % NZ;
+  }
+  if (x >= 0 && y >= 0 && z >= 0 && x < NX && y < NY && z < NZ) {
+    int n, m;
+    hnm(h, &n, &m);
+    v = t.M[((lo + bidx(t, l, x, y, z)) * t.nc + c) * t.nt + n * n + n + m];
+  }
+  S[j * 2] = v.x;
+  S[j * 2 + 1] = v.y;
+}
+__global__ static void munpack(T t, int l, int lo, int3 ax, int3 D, const double *S) {
+  int nh = (t.p + 1) * (t.p + 2) / 2;
+  long j = blockIdx.x * (long)blockDim.x + threadIdx.x;
+  if (j >= (long)D.x * D.y * D.z * t.nc * 8 * nh)
+    return;
+  int h = j % nh, q = (j / nh) % 8, c = (j / nh / 8) % t.nc, n, m, a[3] = {ax.x, ax.y, ax.z};
+  long cell = j / nh / 8 / t.nc, u[3], P[3];
+  u[2] = cell % D.z;
+  u[1] = (cell / D.z) % D.y;
+  u[0] = cell / ((long)D.z * D.y);
+  for (int k = 0; k < 3; k++)
+    P[a[k]] = u[k];
+  long cp = ((u[0] + 1) * (D.y + 2) + u[1] + 1) * (D.z + 2) + u[2] + 1;
+  long b = lo + bidx(t, l, 2 * P[0] + ((q >> 2) & 1), 2 * P[1] + ((q >> 1) & 1), 2 * P[2] + (q & 1));
+  const double *s = S + (((cp * t.nc + c) * 8 + q) * nh + h) * 2;
+  double2 v = mk(s[0], s[1]), *Lb = t.L + (b * t.nc + c) * t.nt;
+  hnm(h, &n, &m);
+  Lb[n * n + n + m] = add(Lb[n * n + n + m], v);
+  if (m > 0)
+    Lb[n * n + n - m] = add(Lb[n * n + n - m], scl(cj(v), m % 2 ? -1 : 1));
+}
+__global__ static void lpack(T t, int l, int lo, int B3, int K, int3 ax, int3 D, double *X) {
+  long j = blockIdx.x * (long)blockDim.x + threadIdx.x;
+  if (j >= (long)(D.x + 2 * K) * (D.y + 2 * K) * (D.z + 2 * K) * 3 * B3)
+    return;
+  int i = j % B3, c = (j / B3) % 3, a[3] = {ax.x, ax.y, ax.z};
+  long cell = j / B3 / 3, u[3], P[3];
+  u[2] = cell % (D.z + 2 * K);
+  u[1] = (cell / (D.z + 2 * K)) % (D.y + 2 * K);
+  u[0] = cell / ((long)(D.z + 2 * K) * (D.y + 2 * K));
+  for (int k = 0; k < 3; k++)
+    P[a[k]] = u[k] - K;
+  long NX = (long)t.n1 << l, NY = (long)t.n2 << l, NZ = (long)t.n3 << l, x = P[0], y = P[1], z = P[2];
+  if (t.per) {
+    x = (x % NX + NX) % NX;
+    y = (y % NY + NY) % NY;
+    z = (z % NZ + NZ) % NZ;
+  }
+  double v = 0;
+  if (x >= 0 && y >= 0 && z >= 0 && x < NX && y < NY && z < NZ)
+    v = t.q[((long)t.start[lo + bidx(t, l, x, y, z)] + i) * 3 + c];
+  X[j] = v;
+}
+__global__ static void lcombp(T t, int l, int lo, int B3, int K, int3 ax, int3 D, const double *Y, double *ul) {
+  long j = blockIdx.x * (long)blockDim.x + threadIdx.x;
+  if (j >= (long)D.x * D.y * D.z * B3)
+    return;
+  int i = j % B3, a[3] = {ax.x, ax.y, ax.z};
+  long cell = j / B3, u[3], P[3];
+  u[2] = cell % D.z;
+  u[1] = (cell / D.z) % D.y;
+  u[0] = cell / ((long)D.z * D.y);
+  for (int k = 0; k < 3; k++)
+    P[a[k]] = u[k];
+  long cp = ((u[0] + K) * (D.y + 2 * K) + u[1] + K) * (D.z + 2 * K) + u[2] + K;
+  const double *y = Y + cp * 6 * B3 + i;
+  long o = ((long)t.start[lo + bidx(t, l, P[0], P[1], P[2])] + i) * 3;
+  ul[o] += y[5 * B3] - y[2 * B3];
+  ul[o + 1] += y[B3] - y[4 * B3];
+  ul[o + 2] += y[3 * B3] - y[0];
 }
 __global__ static void p2p(T t, int nb) {
   __shared__ double sx[nwarp], sy[nwarp], sz[nwarp], sq[3 * nwarp];
@@ -1082,13 +1192,13 @@ int main(int argc, char **argv) {
   t.D = DM;
   t.delta = 0;
   t.ord = 2;
-  char *lpath = NULL;
+  char *lpath = NULL, *fpath = NULL, *gpath = NULL;
   timing = biot = 0;
   int dbg = 0;
   nchk = 0;
   while (*++argv != NULL && argv[0][0] == '-') {
     if (argv[0][1] == 'h') {
-      fprintf(stderr, "Usage: fmm3 -i <in.raw> -o <out.raw> [-p <order>] [-s <max per leaf>] [-D <max depth>] [-d <gauss core delta>] [-b (Biot-Savart)] [-t (timings)] [-c <m> (direct check of the first m particles)] [-P <far table from periodic.py> -A <cube edge> (periodic)] -T <tables from tables.py>\n"
+      fprintf(stderr, "Usage: fmm3 -i <in.raw> -o <out.raw> [-p <order>] [-s <max per leaf>] [-D <max depth>] [-d <gauss core delta>] [-b (Biot-Savart)] [-t (timings)] [-c <m> (direct check of the first m particles)] [-P <far table from periodic.py> -A <cube edge> (periodic)] -T <tables from tables.py> [-L <near table from neartab.py> (lattice near field) [-F <leaf table from leaftab.py> (P2M/L2P as matrices)]] [-G <table from m2ltab.py> (M2L as GEMMs on uniform levels)]\n"
                       "  Laplace: in N x (x, y, z, q), out N x (phi, gx, gy, gz); -b: in N x (x, y, z, ax, ay, az), out N x (u, v, w)\n");
       exit(1);
     }
@@ -1126,6 +1236,14 @@ int main(int argc, char **argv) {
     }
     if (argv[0][1] == 'L') {
       lpath = *++argv;
+      continue;
+    }
+    if (argv[0][1] == 'F') {
+      fpath = *++argv;
+      continue;
+    }
+    if (argv[0][1] == 'G') {
+      gpath = *++argv;
       continue;
     }
     x = strtod(argv[1], &end);
@@ -1450,6 +1568,261 @@ int main(int argc, char **argv) {
     exit(1);
   }
   ck(cudaEventRecord(ev[2]), "cudaEventRecord");
+  cublasHandle_t hb = NULL;
+  if ((lpath != NULL || gpath != NULL) && cublasCreate(&hb) != CUBLAS_STATUS_SUCCESS) {
+    fprintf(stderr, "fmm3: error: cublasCreate failed\n");
+    exit(1);
+  }
+  int lB = 0, lB3 = 0, lKc = 0, nlv = 0, ll = -1, nof = 0, ffm = 0, nbt = 0, *lst = NULL, *dst = NULL, *dsrca = NULL, *dlid = NULL;
+  long lM3 = 0, lMc3 = 0;
+  int3 lax = make_int3(0, 1, 2), lD = make_int3(0, 0, 0);
+  double *ul = NULL, hl = 0, *dG = NULL, *dX = NULL, *dY = NULL, *dQ = NULL, *dP2 = NULL, *dV2 = NULL;
+  double *fP = NULL, *fR = NULL;
+  double2 *fA = NULL, *fU = NULL, *fG = NULL;
+  cufftHandle pf, pb, pg;
+  if (lpath != NULL) {
+    long hd[3];
+    double eh;
+    FILE *lf = fopen(lpath, "r");
+    if (lf == NULL || fread(hd, sizeof(long), 3, lf) != 3 || fread(&eh, sizeof(double), 1, lf) != 1) {
+      fprintf(stderr, "fmm3: error: fail to read '%s'\n", lpath);
+      exit(1);
+    }
+    lB = hd[0];
+    lKc = hd[1];
+    lB3 = lB * lB * lB;
+    int R = hd[2], W = 2 * R + 1;
+    long nw = (long)W * W * W * 3;
+    double *tf = (double *)malloc(2 * nw * sizeof(double));
+    if (tf == NULL || fread(tf, sizeof(double), 2 * nw, lf) != (size_t)(2 * nw) || !biot) {
+      fprintf(stderr, "fmm3: error: fail to read '%s' (or no -b)\n", lpath);
+      exit(1);
+    }
+    fclose(lf);
+    int *chh = (int *)malloc(nb * sizeof(int)), *cnt2 = (int *)malloc(nb * sizeof(int)), *lvh = (int *)malloc(nb * sizeof(int)), *st2 = (int *)malloc(nb * sizeof(int)), *bh = (int *)malloc(3 * nb * sizeof(int));
+    double *xs = (double *)pmalloc(3 * N * sizeof(double)), *cxh = (double *)malloc(3 * nb * sizeof(double));
+    ck(cudaMemcpy(chh, t.ch, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
+    ck(cudaMemcpy(cnt2, t.count, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
+    ck(cudaMemcpy(lvh, t.lev, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
+    ck(cudaMemcpy(st2, t.start, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
+    ck(cudaMemcpy(bh, t.bx, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
+    ck(cudaMemcpy(bh + nb, t.by, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
+    ck(cudaMemcpy(bh + 2 * nb, t.bz, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
+    ck(cudaMemcpy(xs, t.x, N * sizeof(double), cudaMemcpyDeviceToHost), "cudaMemcpy");
+    ck(cudaMemcpy(xs + N, t.y, N * sizeof(double), cudaMemcpyDeviceToHost), "cudaMemcpy");
+    ck(cudaMemcpy(xs + 2 * N, t.z, N * sizeof(double), cudaMemcpyDeviceToHost), "cudaMemcpy");
+    ck(cudaMemcpy(cxh, t.cx, nb * sizeof(double), cudaMemcpyDeviceToHost), "cudaMemcpy");
+    ck(cudaMemcpy(cxh + nb, t.cy, nb * sizeof(double), cudaMemcpyDeviceToHost), "cudaMemcpy");
+    ck(cudaMemcpy(cxh + 2 * nb, t.cz, nb * sizeof(double), cudaMemcpyDeviceToHost), "cudaMemcpy");
+    for (int b = 0; b < nb; b++)
+      if (chh[b] < 0) {
+        if (ll < 0)
+          ll = lvh[b];
+        if (lvh[b] != ll || cnt2[b] != lB3) {
+          fprintf(stderr, "fmm3: error: -L needs uniform leaves of %d particles (leaf %d level %d count %d)\n", lB3, b, lvh[b], cnt2[b]);
+          exit(1);
+        }
+        nlv++;
+      }
+    hl = t.S / (double)(1L << ll);
+    double hh = hl / lB;
+    int *lc = (int *)malloc(3 * lB3 * sizeof(int));
+    for (int i = 0; i < lB3; i++) {
+      int a3[3] = {0, 0, 0};
+      for (int bb = 0; (1 << bb) < lB; bb++) {
+        a3[0] |= ((i >> (3 * bb + 2)) & 1) << bb;
+        a3[1] |= ((i >> (3 * bb + 1)) & 1) << bb;
+        a3[2] |= ((i >> (3 * bb)) & 1) << bb;
+      }
+      for (int d = 0; d < 3; d++)
+        lc[3 * i + d] = a3[d];
+    }
+    int *lid = (int *)malloc(nlv * sizeof(int));
+    long NX = (long)t.n1 << ll, NY = (long)t.n2 << ll, NZ = (long)t.n3 << ll;
+    int *map = (int *)malloc(NX * NY * NZ * sizeof(int));
+    for (long i = 0; i < NX * NY * NZ; i++)
+      map[i] = -1;
+    for (int b = 0, k = 0; b < nb; b++)
+      if (chh[b] < 0) {
+        lid[k++] = b;
+        map[((long)bh[b] * NY + bh[nb + b]) * NZ + bh[2 * nb + b]] = b;
+        for (int i = 0; i < lB3; i++)
+          for (int d = 0; d < 3; d++) {
+            double v = (xs[d * N + st2[b] + i] - (cxh[d * nb + b] - hl / 2)) / hh - 0.5 - lc[3 * i + d];
+            if (fabs(v) > 1e-6) {
+              fprintf(stderr, "fmm3: error: -L needs cell-centred lattice particles (leaf %d node %d off %g)\n", b, i, v);
+              exit(1);
+            }
+          }
+      }
+    int no2 = 2 * lKc + 1;
+    nof = no2 * no2 * no2;
+    double *Gh = (double *)malloc((size_t)3 * lB3 * lB3 * sizeof(double));
+    ck(cudaMalloc(&dG, (size_t)nof * 3 * lB3 * lB3 * sizeof(double)), "cudaMalloc");
+    for (int o = 0; o < nof; o++) {
+      int ox = o / (no2 * no2) - lKc, oy = (o / no2) % no2 - lKc, oz = o % no2 - lKc;
+      int dfl = abs(ox) > 1 || abs(oy) > 1 || abs(oz) > 1;
+      for (int c = 0; c < 3; c++)
+        for (int j = 0; j < lB3; j++)
+          for (int i = 0; i < lB3; i++) {
+            int dx = lc[3 * i] - ox * lB - lc[3 * j], dy = lc[3 * i + 1] - oy * lB - lc[3 * j + 1], dz = lc[3 * i + 2] - oz * lB - lc[3 * j + 2];
+            Gh[(size_t)c * lB3 * lB3 + (size_t)j * lB3 + i] = tf[(size_t)dfl * nw + ((((size_t)(dx + R) * W + dy + R) * W + dz + R) * 3 + c)] / (hh * hh);
+          }
+      ck(cudaMemcpy(dG + (size_t)o * 3 * lB3 * lB3, Gh, (size_t)3 * lB3 * lB3 * sizeof(double), cudaMemcpyHostToDevice), "cudaMemcpy");
+    }
+    free(Gh);
+    ck(cudaMalloc(&dst, nb * sizeof(int)), "cudaMalloc");
+    ck(cudaMemcpy(dst, st2, nb * sizeof(int), cudaMemcpyHostToDevice), "cudaMemcpy");
+    ck(cudaMalloc(&ul, 3 * N * sizeof(double)), "cudaMalloc");
+    ck(cudaMemset(ul, 0, 3 * N * sizeof(double)), "cudaMemset");
+    ck(cudaMalloc(&lst, nlv * sizeof(int)), "cudaMalloc");
+    int *lsth = (int *)malloc(nlv * sizeof(int));
+    for (int k = 0; k < nlv; k++)
+      lsth[k] = st2[lid[k]];
+    ck(cudaMemcpy(lst, lsth, nlv * sizeof(int), cudaMemcpyHostToDevice), "cudaMemcpy");
+    ck(cudaMalloc(&dlid, nlv * sizeof(int)), "cudaMalloc");
+    ck(cudaMemcpy(dlid, lid, nlv * sizeof(int), cudaMemcpyHostToDevice), "cudaMemcpy");
+    int *srca = (int *)malloc((size_t)nof * nlv * sizeof(int));
+    for (int o = 0; o < nof; o++) {
+      int ox = o / (no2 * no2) - lKc, oy = (o / no2) % no2 - lKc, oz = o % no2 - lKc;
+      for (int k = 0; k < nlv; k++) {
+        int b = lid[k];
+        long X = bh[b] + ox, Y = bh[nb + b] + oy, Z = bh[2 * nb + b] + oz;
+        if (t.per) {
+          X = ((X % NX) + NX) % NX;
+          Y = ((Y % NY) + NY) % NY;
+          Z = ((Z % NZ) + NZ) % NZ;
+          srca[(size_t)o * nlv + k] = map[(X * NY + Y) * NZ + Z];
+        } else
+          srca[(size_t)o * nlv + k] = (X < 0 || Y < 0 || Z < 0 || X >= NX || Y >= NY || Z >= NZ) ? -1 : map[(X * NY + Y) * NZ + Z];
+      }
+    }
+    ck(cudaMalloc(&dsrca, (size_t)nof * nlv * sizeof(int)), "cudaMalloc");
+    ck(cudaMemcpy(dsrca, srca, (size_t)nof * nlv * sizeof(int), cudaMemcpyHostToDevice), "cudaMemcpy");
+    ffm = getenv("FMM_NEAR") != NULL && !strcmp(getenv("FMM_NEAR"), "fft");
+    if (ffm && lKc != 1) {
+      fprintf(stderr, "fmm3: error: FMM_NEAR=fft needs a Kc = 1 table\n");
+      exit(1);
+    }
+    int M = 4 * lB;
+    lM3 = (long)M * M * M;
+    lMc3 = (long)M * M * (M / 2 + 1);
+    if (ffm) {
+      nbt = nlv < 512 ? nlv : 512;
+      double *kr = (double *)calloc(3 * lM3, sizeof(double)), *dkr;
+      for (int dx = -(2 * lB - 1); dx <= 2 * lB - 1; dx++)
+        for (int dy = -(2 * lB - 1); dy <= 2 * lB - 1; dy++)
+          for (int dz = -(2 * lB - 1); dz <= 2 * lB - 1; dz++)
+            for (int c = 0; c < 3; c++)
+              kr[c * lM3 + ((long)((dx + M) % M) * M + (dy + M) % M) * M + (dz + M) % M] = tf[((((size_t)(dx + R) * W + dy + R) * W + dz + R) * 3 + c)] / (hh * hh);
+      ck(cudaMalloc(&dkr, 3 * lM3 * sizeof(double)), "cudaMalloc");
+      ck(cudaMemcpy(dkr, kr, 3 * lM3 * sizeof(double), cudaMemcpyHostToDevice), "cudaMemcpy");
+      ck(cudaMalloc(&fG, 3 * lMc3 * sizeof(double2)), "cudaMalloc");
+      int nn[3] = {M, M, M};
+      if (cufftPlanMany(&pg, 3, nn, NULL, 1, 0, NULL, 1, 0, CUFFT_D2Z, 3) != CUFFT_SUCCESS || cufftExecD2Z(pg, dkr, (cufftDoubleComplex *)fG) != CUFFT_SUCCESS ||
+          cufftPlanMany(&pf, 3, nn, NULL, 1, 0, NULL, 1, 0, CUFFT_D2Z, 3 * nbt) != CUFFT_SUCCESS || cufftPlanMany(&pb, 3, nn, NULL, 1, 0, NULL, 1, 0, CUFFT_Z2D, 3 * nbt) != CUFFT_SUCCESS) {
+        fprintf(stderr, "fmm3: error: cufft plan failed\n");
+        exit(1);
+      }
+      ck(cudaMalloc(&fP, (size_t)nbt * 3 * lM3 * sizeof(double)), "cudaMalloc");
+      ck(cudaMalloc(&fR, (size_t)nbt * 3 * lM3 * sizeof(double)), "cudaMalloc");
+      ck(cudaMalloc(&fA, (size_t)nbt * 3 * lMc3 * sizeof(double2)), "cudaMalloc");
+      ck(cudaMalloc(&fU, (size_t)nbt * 3 * lMc3 * sizeof(double2)), "cudaMalloc");
+    } else {
+      int P[3] = {(int)NX, (int)NY, (int)NZ}, a[3] = {0, 1, 2};
+      for (int i = 0; i < 3; i++)
+        for (int k = 0; k < 2; k++)
+          if (P[a[k]] > P[a[k + 1]]) {
+            int w = a[k];
+            a[k] = a[k + 1];
+            a[k + 1] = w;
+          }
+      lax = make_int3(a[0], a[1], a[2]);
+      lD = make_int3(P[a[0]], P[a[1]], P[a[2]]);
+      long ncp = (long)(lD.x + 2 * lKc) * (lD.y + 2 * lKc) * (lD.z + 2 * lKc);
+      ck(cudaMalloc(&dX, (size_t)lB3 * 3 * ncp * sizeof(double)), "cudaMalloc");
+      ck(cudaMalloc(&dY, (size_t)lB3 * 6 * ncp * sizeof(double)), "cudaMalloc");
+    }
+    if (fpath != NULL) {
+      long fh[2];
+      FILE *ff = fopen(fpath, "r");
+      size_t np2 = (size_t)2 * t.nt * lB3, nv2 = (size_t)3 * lB3 * 6 * t.nt;
+      double *P2 = (double *)malloc(np2 * sizeof(double)), *V2 = (double *)malloc(nv2 * sizeof(double));
+      if (ff == NULL || fread(fh, sizeof(long), 2, ff) != 2 || fh[0] != lB || fh[1] != t.p || fread(P2, sizeof(double), np2, ff) != np2 || fread(V2, sizeof(double), nv2, ff) != nv2) {
+        fprintf(stderr, "fmm3: error: '%s' is not a leaf table for B = %d, p = %d\n", fpath, lB, t.p);
+        exit(1);
+      }
+      fclose(ff);
+      if (ll != nl || nlv != hi[ll] - lo[ll]) {
+        fprintf(stderr, "fmm3: error: -F needs every box of the last level to be a leaf\n");
+        exit(1);
+      }
+      for (int k = 0; k < nlv; k++)
+        if (lid[k] != lo[ll] + k || st2[lid[k]] != k * lB3) {
+          fprintf(stderr, "fmm3: error: -F needs leaves in particle order (leaf %d)\n", k);
+          exit(1);
+        }
+      ck(cudaMalloc(&dP2, np2 * sizeof(double)), "cudaMalloc");
+      ck(cudaMemcpy(dP2, P2, np2 * sizeof(double), cudaMemcpyHostToDevice), "cudaMemcpy");
+      ck(cudaMalloc(&dV2, nv2 * sizeof(double)), "cudaMalloc");
+      ck(cudaMemcpy(dV2, V2, nv2 * sizeof(double), cudaMemcpyHostToDevice), "cudaMemcpy");
+      ck(cudaMalloc(&dQ, (size_t)lB3 * 3 * nlv * sizeof(double)), "cudaMalloc");
+      free(P2);
+      free(V2);
+    }
+    free(tf);
+    free(chh);
+    free(cnt2);
+    free(lvh);
+    free(st2);
+    free(bh);
+    cudaFreeHost(xs);
+    free(cxh);
+    free(lc);
+    free(lid);
+    free(map);
+    free(lsth);
+    free(srca);
+  }
+  int m2g = 0, H = 16 * ((t.p + 1) * (t.p + 2) / 2), lg0 = t.per ? 1 : 2;
+  double *dA = NULL, *dS = NULL, *dLs = NULL;
+  int mode = getenv("FMM_M2L") != NULL ? atoi(getenv("FMM_M2L")) : gpath != NULL ? 3 : 1;
+  if (mode == 3 && gpath == NULL) {
+    fprintf(stderr, "fmm3: error: FMM_M2L=3 needs -G\n");
+    exit(1);
+  }
+  if (mode == 3) {
+    int full = 1;
+    for (int l = 0; l <= nl; l++)
+      full = full && (long)(hi[l] - lo[l]) == ((long)nroot << (3 * l));
+    if (!full || nl < lg0) {
+      fprintf(stderr, "fmm3: error: -G needs a uniform tree (every level full) of depth >= %d\n", lg0);
+      exit(1);
+    }
+    long hp, nj = (long)(2 * t.p + 1) * (2 * t.p + 2) / 2;
+    double2 *Ih = (double2 *)malloc(343 * nj * sizeof(double2)), *dI;
+    FILE *gf = fopen(gpath, "r");
+    if (gf == NULL || fread(&hp, sizeof(long), 1, gf) != 1 || hp != t.p || fread(Ih, sizeof(double2), 343 * nj, gf) != (size_t)(343 * nj)) {
+      fprintf(stderr, "fmm3: error: '%s' is not an M2L table for p = %d\n", gpath, t.p);
+      exit(1);
+    }
+    fclose(gf);
+    double *dfe;
+    ck(cudaMalloc(&dI, 343 * nj * sizeof(double2)), "cudaMalloc");
+    ck(cudaMemcpy(dI, Ih, 343 * nj * sizeof(double2), cudaMemcpyHostToDevice), "cudaMemcpy");
+    ck(cudaMalloc(&dfe, (size_t)t.nt * t.nt * sizeof(double)), "cudaMalloc");
+    ck(cudaMemcpy(dfe, fe, (size_t)t.nt * t.nt * sizeof(double), cudaMemcpyHostToDevice), "cudaMemcpy");
+    ck(cudaMalloc(&dA, 26 * (size_t)H * H * sizeof(double)), "cudaMalloc");
+    mkA<<<grid(26L * H * H), nthread>>>(t.p, dI, dfe, dA);
+    launched("mkA");
+    long nc = (long)((t.n1 << nl) / 2 + 2) * ((t.n2 << nl) / 2 + 2) * ((t.n3 << nl) / 2 + 2) * t.nc * H;
+    ck(cudaMalloc(&dS, nc * sizeof(double)), "cudaMalloc");
+    ck(cudaMalloc(&dLs, nc * sizeof(double)), "cudaMalloc");
+    ck(cudaFree(dI), "cudaFree");
+    ck(cudaFree(dfe), "cudaFree");
+    free(Ih);
+    m2g = 1;
+  }
   long gs = goff(t.p + 1);
   double2 *A = (double2 *)malloc(343 * gs * sizeof(double2)), *B = (double2 *)malloc(8 * gs * sizeof(double2));
   if (A == NULL || B == NULL) {
@@ -1482,7 +1855,15 @@ int main(int argc, char **argv) {
   ck(cudaMemset(t.M, 0, (size_t)nb * t.nc * t.nt * sizeof(double2)), "cudaMemset");
   ck(cudaMemset(t.L, 0, (size_t)nb * t.nc * t.nt * sizeof(double2)), "cudaMemset");
   ck(cudaEventRecord(ev[3]), "cudaEventRecord");
-  p2m<<<grid((long)nb * t.nc * (t.p + 1)), nthread>>>(t, nb);
+  if (dP2 != NULL) {
+    double one = 1, zero = 0;
+    lgath<<<grid((long)nlv * lB3 * 3), nthread>>>(nlv, lB3, dlid, dst, t.q, dQ);
+    if (cublasDgemm(hb, CUBLAS_OP_N, CUBLAS_OP_N, 2 * t.nt, 3 * nlv, lB3, &one, dP2, 2 * t.nt, dQ, lB3, &zero, (double *)(t.M + (size_t)lo[ll] * 3 * t.nt), 2 * t.nt) != CUBLAS_STATUS_SUCCESS) {
+      fprintf(stderr, "fmm3: error: cublasDgemm failed\n");
+      exit(1);
+    }
+  } else
+    p2m<<<grid((long)nb * t.nc * (t.p + 1)), nthread>>>(t, nb);
   launched("p2m");
   for (int l = nl - 1; l >= 0; l--) {
     m2m<<<hi[l] - lo[l], TB, shm>>>(t, lo[l], hi[l], l);
@@ -1497,8 +1878,37 @@ int main(int argc, char **argv) {
     ck(cudaFree(Tf), "cudaFree");
   }
   ck(cudaEventRecord(ev[4]), "cudaEventRecord");
-  int mode = getenv("FMM_M2L") != NULL ? atoi(getenv("FMM_M2L")) : 1;
-  if (mode != 2)
+  if (m2g) {
+    if (t.per && t.K > 1)
+      m2lh<<<hi[0], M2LT, shm>>>(t, hi[0]);
+    for (int l = lg0; l <= nl; l++) {
+      int P[3] = {(t.n1 << l) / 2, (t.n2 << l) / 2, (t.n3 << l) / 2}, a[3] = {0, 1, 2};
+      for (int i = 0; i < 3; i++)
+        for (int k = 0; k < 2; k++)
+          if (P[a[k]] > P[a[k + 1]]) {
+            int w = a[k];
+            a[k] = a[k + 1];
+            a[k + 1] = w;
+          }
+      int3 ax = make_int3(a[0], a[1], a[2]), D = make_int3(P[a[0]], P[a[1]], P[a[2]]);
+      long c0 = (((long)D.y + 2) * (D.z + 2) + D.z + 2 + 1) * t.nc, nh = H / 16;
+      long ncol = (((long)D.y - 1) * (D.z + 2) + D.z) * t.nc, sb = ((long)D.y + 2) * (D.z + 2) * t.nc * H;
+      mpack<<<grid((long)(D.x + 2) * (D.y + 2) * (D.z + 2) * t.nc * 8 * nh), nthread>>>(t, l, lo[l], ax, D, dS);
+      for (int d = 0, k = 0; d < 27; d++) {
+        if (d == 13)
+          continue;
+        int dd[3] = {d / 9 - 1, (d / 3) % 3 - 1, d % 3 - 1};
+        long sh = ((long)dd[a[0]] * (D.y + 2) + dd[a[1]]) * (D.z + 2) + dd[a[2]];
+        double one = 1, beta = k > 0;
+        if (cublasDgemmStridedBatched(hb, CUBLAS_OP_N, CUBLAS_OP_N, H, ncol, H, &one, dA + (size_t)k * H * H, H, 0, dS + (c0 + sh * t.nc) * H, H, sb, &beta, dLs + c0 * H, H, sb, D.x) != CUBLAS_STATUS_SUCCESS) {
+          fprintf(stderr, "fmm3: error: cublasDgemm failed\n");
+          exit(1);
+        }
+        k++;
+      }
+      munpack<<<grid((long)D.x * D.y * D.z * t.nc * 8 * nh), nthread>>>(t, l, lo[l], ax, D, dLs);
+    }
+  } else if (mode != 2)
     m2lh<<<nb, M2LT, shm>>>(t, nb);
   else {
     int nh = (t.p + 1) * (t.p + 2) / 2, P2 = 2 * t.p + 1;
@@ -1625,204 +2035,66 @@ int main(int argc, char **argv) {
     free(hl);
     free(lv);
   }
-  l2p<<<grid(N), nthread>>>(t);
+  if (dV2 != NULL) {
+    double one = 1, a2 = 1 / (hl * hl);
+    ck(cudaMemset(t.phi, 0, t.nc * N * sizeof(double)), "cudaMemset");
+    ck(cudaMemset(t.gr, 0, 3 * t.nc * N * sizeof(double)), "cudaMemset");
+    if (cublasDgemm(hb, CUBLAS_OP_N, CUBLAS_OP_N, 3 * lB3, nlv, 6 * t.nt, &a2, dV2, 3 * lB3, (double *)(t.L + (size_t)lo[ll] * 3 * t.nt), 6 * t.nt, &one, ul, 3 * lB3) != CUBLAS_STATUS_SUCCESS) {
+      fprintf(stderr, "fmm3: error: cublasDgemm failed\n");
+      exit(1);
+    }
+  } else
+    l2p<<<grid(N), nthread>>>(t);
   launched("l2p");
   m2p<<<grid(N), nthread>>>(t);
   launched("m2p");
   ck(cudaEventRecord(ev[7]), "cudaEventRecord");
-  double *ul = NULL;
   if (lpath == NULL) {
     p2p<<<nb, nwarp>>>(t, nb);
     launched("p2p");
   } else {
-    long hd[3];
-    double eh;
-    FILE *lf = fopen(lpath, "r");
-    if (lf == NULL || fread(hd, sizeof(long), 3, lf) != 3 || fread(&eh, sizeof(double), 1, lf) != 1) {
-      fprintf(stderr, "fmm3: error: fail to read '%s'\n", lpath);
-      exit(1);
-    }
-    int B = hd[0], Kc = hd[1], R = hd[2], W = 2 * R + 1, B3 = B * B * B;
-    long nw = (long)W * W * W * 3;
-    double *tf = (double *)malloc(2 * nw * sizeof(double));
-    if (tf == NULL || fread(tf, sizeof(double), 2 * nw, lf) != (size_t)(2 * nw) || !biot) {
-      fprintf(stderr, "fmm3: error: fail to read '%s' (or no -b)\n", lpath);
-      exit(1);
-    }
-    fclose(lf);
-    int *chh = (int *)malloc(nb * sizeof(int)), *cnt2 = (int *)malloc(nb * sizeof(int)), *lvh = (int *)malloc(nb * sizeof(int)), *st2 = (int *)malloc(nb * sizeof(int)), *bh = (int *)malloc(3 * nb * sizeof(int));
-    double *xs = (double *)pmalloc(3 * N * sizeof(double)), *cxh = (double *)malloc(3 * nb * sizeof(double));
-    ck(cudaMemcpy(chh, t.ch, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
-    ck(cudaMemcpy(cnt2, t.count, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
-    ck(cudaMemcpy(lvh, t.lev, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
-    ck(cudaMemcpy(st2, t.start, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
-    ck(cudaMemcpy(bh, t.bx, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
-    ck(cudaMemcpy(bh + nb, t.by, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
-    ck(cudaMemcpy(bh + 2 * nb, t.bz, nb * sizeof(int), cudaMemcpyDeviceToHost), "cudaMemcpy");
-    ck(cudaMemcpy(xs, t.x, N * sizeof(double), cudaMemcpyDeviceToHost), "cudaMemcpy");
-    ck(cudaMemcpy(xs + N, t.y, N * sizeof(double), cudaMemcpyDeviceToHost), "cudaMemcpy");
-    ck(cudaMemcpy(xs + 2 * N, t.z, N * sizeof(double), cudaMemcpyDeviceToHost), "cudaMemcpy");
-    ck(cudaMemcpy(cxh, t.cx, nb * sizeof(double), cudaMemcpyDeviceToHost), "cudaMemcpy");
-    ck(cudaMemcpy(cxh + nb, t.cy, nb * sizeof(double), cudaMemcpyDeviceToHost), "cudaMemcpy");
-    ck(cudaMemcpy(cxh + 2 * nb, t.cz, nb * sizeof(double), cudaMemcpyDeviceToHost), "cudaMemcpy");
-    int ll = -1, nl = 0;
-    for (int b = 0; b < nb; b++)
-      if (chh[b] < 0) {
-        if (ll < 0)
-          ll = lvh[b];
-        if (lvh[b] != ll || cnt2[b] != B3) {
-          fprintf(stderr, "fmm3: error: -L needs uniform leaves of %d particles (leaf %d level %d count %d)\n", B3, b, lvh[b], cnt2[b]);
-          exit(1);
-        }
-        nl++;
-      }
-    double hl = t.S / (double)(1L << ll), hh = hl / B;
-    int *lc = (int *)malloc(3 * B3 * sizeof(int));
-    for (int i = 0; i < B3; i++) {
-      int a3[3] = {0, 0, 0};
-      for (int bb = 0; (1 << bb) < B; bb++) {
-        a3[0] |= ((i >> (3 * bb + 2)) & 1) << bb;
-        a3[1] |= ((i >> (3 * bb + 1)) & 1) << bb;
-        a3[2] |= ((i >> (3 * bb)) & 1) << bb;
-      }
-      for (int d = 0; d < 3; d++)
-        lc[3 * i + d] = a3[d];
-    }
-    int *lid = (int *)malloc(nl * sizeof(int)), *lofb = (int *)malloc(nb * sizeof(int));
-    long NX = (long)t.n1 << ll, NY = (long)t.n2 << ll, NZ = (long)t.n3 << ll;
-    int *map = (int *)malloc(NX * NY * NZ * sizeof(int));
-    for (long i = 0; i < NX * NY * NZ; i++)
-      map[i] = -1;
-    for (int b = 0, k = 0; b < nb; b++)
-      if (chh[b] < 0) {
-        lid[k] = b;
-        lofb[b] = k++;
-        map[((long)bh[b] * NY + bh[nb + b]) * NZ + bh[2 * nb + b]] = b;
-        for (int i = 0; i < B3; i++)
-          for (int d = 0; d < 3; d++) {
-            double v = (xs[d * N + st2[b] + i] - (cxh[d * nb + b] - hl / 2)) / hh - 0.5 - lc[3 * i + d];
-            if (fabs(v) > 1e-6) {
-              fprintf(stderr, "fmm3: error: -L needs cell-centred lattice particles (leaf %d node %d off %g)\n", b, i, v);
-              exit(1);
-            }
-          }
-      }
-    int no2 = 2 * Kc + 1, nof = no2 * no2 * no2;
-    double *Gh = (double *)malloc((size_t)3 * B3 * B3 * sizeof(double)), *dG, *dX, *dY;
-    int *srch = (int *)malloc(nl * sizeof(int)), *dsrc, *dst;
-    ck(cudaMalloc(&dG, (size_t)nof * 3 * B3 * B3 * sizeof(double)), "cudaMalloc");
-    for (int o = 0; o < nof; o++) {
-      int ox = o / (no2 * no2) - Kc, oy = (o / no2) % no2 - Kc, oz = o % no2 - Kc;
-      int dfl = abs(ox) > 1 || abs(oy) > 1 || abs(oz) > 1;
-      for (int c = 0; c < 3; c++)
-        for (int j = 0; j < B3; j++)
-          for (int i = 0; i < B3; i++) {
-            int dx = lc[3 * i] - ox * B - lc[3 * j], dy = lc[3 * i + 1] - oy * B - lc[3 * j + 1], dz = lc[3 * i + 2] - oz * B - lc[3 * j + 2];
-            Gh[(size_t)c * B3 * B3 + (size_t)j * B3 + i] = tf[(size_t)dfl * nw + ((((size_t)(dx + R) * W + dy + R) * W + dz + R) * 3 + c)] / (hh * hh);
-          }
-      ck(cudaMemcpy(dG + (size_t)o * 3 * B3 * B3, Gh, (size_t)3 * B3 * B3 * sizeof(double), cudaMemcpyHostToDevice), "cudaMemcpy");
-    }
-    ck(cudaMalloc(&dX, (size_t)B3 * 3 * nl * sizeof(double)), "cudaMalloc");
-    ck(cudaMalloc(&dY, (size_t)3 * B3 * 3 * nl * sizeof(double)), "cudaMalloc");
-    ck(cudaMalloc(&dsrc, nl * sizeof(int)), "cudaMalloc");
-    ck(cudaMalloc(&dst, nb * sizeof(int)), "cudaMalloc");
-    ck(cudaMemcpy(dst, st2, nb * sizeof(int), cudaMemcpyHostToDevice), "cudaMemcpy");
-    ck(cudaMalloc(&ul, 3 * N * sizeof(double)), "cudaMalloc");
-    ck(cudaMemset(ul, 0, 3 * N * sizeof(double)), "cudaMemset");
-    int *lst;
-    ck(cudaMalloc(&lst, nl * sizeof(int)), "cudaMalloc");
-    int *lsth = (int *)malloc(nl * sizeof(int));
-    for (int k = 0; k < nl; k++)
-      lsth[k] = st2[lid[k]];
-    ck(cudaMemcpy(lst, lsth, nl * sizeof(int), cudaMemcpyHostToDevice), "cudaMemcpy");
-    cublasHandle_t hb;
-    if (cublasCreate(&hb) != CUBLAS_STATUS_SUCCESS) {
-      fprintf(stderr, "fmm3: error: cublasCreate failed\n");
-      exit(1);
-    }
-    double one = 1, zero = 0;
-    int *srca = (int *)malloc((size_t)nof * nl * sizeof(int)), *dsrca;
-    for (int o = 0; o < nof; o++) {
-      int ox = o / (no2 * no2) - Kc, oy = (o / no2) % no2 - Kc, oz = o % no2 - Kc;
-      for (int k = 0; k < nl; k++) {
-        int b = lid[k];
-        long X = bh[b] + ox, Y = bh[nb + b] + oy, Z = bh[2 * nb + b] + oz;
-        if (t.per) {
-          X = ((X % NX) + NX) % NX;
-          Y = ((Y % NY) + NY) % NY;
-          Z = ((Z % NZ) + NZ) % NZ;
-          srca[(size_t)o * nl + k] = map[(X * NY + Y) * NZ + Z];
-        } else
-          srca[(size_t)o * nl + k] = (X < 0 || Y < 0 || Z < 0 || X >= NX || Y >= NY || Z >= NZ) ? -1 : map[(X * NY + Y) * NZ + Z];
-      }
-    }
-    ck(cudaMalloc(&dsrca, (size_t)nof * nl * sizeof(int)), "cudaMalloc");
-    ck(cudaMemcpy(dsrca, srca, (size_t)nof * nl * sizeof(int), cudaMemcpyHostToDevice), "cudaMemcpy");
     cudaEvent_t e0, e1;
     ck(cudaEventCreate(&e0), "cudaEventCreate");
     ck(cudaEventCreate(&e1), "cudaEventCreate");
-    int ffm = getenv("FMM_NEAR") != NULL && !strcmp(getenv("FMM_NEAR"), "fft");
-    if (ffm && Kc != 1) {
-      fprintf(stderr, "fmm3: error: FMM_NEAR=fft needs a Kc = 1 table\n");
-      exit(1);
-    }
-    int M = 4 * B, nbt = 0;
-    long M3 = (long)M * M * M, Mc3 = (long)M * M * (M / 2 + 1);
-    double *fP = NULL, *fR = NULL;
-    double2 *fA = NULL, *fU = NULL, *fG = NULL;
-    cufftHandle pf, pb, pg;
-    if (ffm) {
-      nbt = nl < 512 ? nl : 512;
-      double *kr = (double *)calloc(3 * M3, sizeof(double)), *dkr;
-      for (int dx = -(2 * B - 1); dx <= 2 * B - 1; dx++)
-        for (int dy = -(2 * B - 1); dy <= 2 * B - 1; dy++)
-          for (int dz = -(2 * B - 1); dz <= 2 * B - 1; dz++)
-            for (int c = 0; c < 3; c++)
-              kr[c * M3 + ((long)((dx + M) % M) * M + (dy + M) % M) * M + (dz + M) % M] = tf[((((size_t)(dx + R) * W + dy + R) * W + dz + R) * 3 + c)] / (hh * hh);
-      ck(cudaMalloc(&dkr, 3 * M3 * sizeof(double)), "cudaMalloc");
-      ck(cudaMemcpy(dkr, kr, 3 * M3 * sizeof(double), cudaMemcpyHostToDevice), "cudaMemcpy");
-      ck(cudaMalloc(&fG, 3 * Mc3 * sizeof(double2)), "cudaMalloc");
-      int nn[3] = {M, M, M};
-      if (cufftPlanMany(&pg, 3, nn, NULL, 1, 0, NULL, 1, 0, CUFFT_D2Z, 3) != CUFFT_SUCCESS || cufftExecD2Z(pg, dkr, (cufftDoubleComplex *)fG) != CUFFT_SUCCESS ||
-          cufftPlanMany(&pf, 3, nn, NULL, 1, 0, NULL, 1, 0, CUFFT_D2Z, 3 * nbt) != CUFFT_SUCCESS || cufftPlanMany(&pb, 3, nn, NULL, 1, 0, NULL, 1, 0, CUFFT_Z2D, 3 * nbt) != CUFFT_SUCCESS) {
-        fprintf(stderr, "fmm3: error: cufft plan failed\n");
-        exit(1);
-      }
-      ck(cudaMalloc(&fP, (size_t)nbt * 3 * M3 * sizeof(double)), "cudaMalloc");
-      ck(cudaMalloc(&fR, (size_t)nbt * 3 * M3 * sizeof(double)), "cudaMalloc");
-      ck(cudaMalloc(&fA, (size_t)nbt * 3 * Mc3 * sizeof(double2)), "cudaMalloc");
-      ck(cudaMalloc(&fU, (size_t)nbt * 3 * Mc3 * sizeof(double2)), "cudaMalloc");
-    }
     ck(cudaEventRecord(e0), "cudaEventRecord");
     if (ffm)
-      for (int k0 = 0; k0 < nl; k0 += nbt) {
-        int nc2 = nl - k0 < nbt ? nl - k0 : nbt;
-        fpatch<<<grid((long)nc2 * 3 * M3), nthread>>>(nc2, k0, nl, B, dsrca, dst, t.q, fP);
+      for (int k0 = 0; k0 < nlv; k0 += nbt) {
+        int nc2 = nlv - k0 < nbt ? nlv - k0 : nbt;
+        fpatch<<<grid((long)nc2 * 3 * lM3), nthread>>>(nc2, k0, nlv, lB, dsrca, dst, t.q, fP);
         if (cufftExecD2Z(pf, fP, (cufftDoubleComplex *)fA) != CUFFT_SUCCESS) {
           fprintf(stderr, "fmm3: error: cufft forward failed\n");
           exit(1);
         }
-        fmulk<<<grid((long)nc2 * Mc3), nthread>>>(nc2, Mc3, fG, fA, fU);
+        fmulk<<<grid((long)nc2 * lMc3), nthread>>>(nc2, lMc3, fG, fA, fU);
         if (cufftExecZ2D(pb, (cufftDoubleComplex *)fU, fR) != CUFFT_SUCCESS) {
           fprintf(stderr, "fmm3: error: cufft inverse failed\n");
           exit(1);
         }
-        fext<<<grid((long)nc2 * B3 * 3), nthread>>>(nc2, k0, B, lst, fR, ul);
+        fext<<<grid((long)nc2 * lB3 * 3), nthread>>>(nc2, k0, lB, lst, fR, ul);
       }
-    for (int o = 0; o < nof && !ffm; o++) {
-      lgath<<<grid((long)nl * B3 * 3), nthread>>>(nl, B3, dsrca + (size_t)o * nl, dst, t.q, dX);
-      for (int c = 0; c < 3; c++)
-        if (cublasDgemm(hb, CUBLAS_OP_N, CUBLAS_OP_N, B3, 3 * nl, B3, &one, dG + ((size_t)o * 3 + c) * B3 * B3, B3, dX, B3, &zero, dY + (size_t)c * B3 * 3 * nl, B3) != CUBLAS_STATUS_SUCCESS) {
-          fprintf(stderr, "fmm3: error: cublasDgemm failed\n");
-          exit(1);
-        }
-      lcomb<<<grid((long)nl * B3), nthread>>>(nl, B3, lst, dY, ul);
+    if (!ffm) {
+      int K = lKc, no2 = 2 * K + 1;
+      long Dy = lD.y + 2 * K, Dz = lD.z + 2 * K, c0 = ((long)K * Dy + K) * Dz + K;
+      long ncol = ((long)lD.y - 1) * Dz + lD.z, sp = Dy * Dz;
+      lpack<<<grid((lD.x + 2L * K) * Dy * Dz * 3 * lB3), nthread>>>(t, ll, lo[ll], lB3, K, lax, lD, dX);
+      for (int o = 0; o < nof; o++) {
+        int oo[3] = {o / (no2 * no2) - K, (o / no2) % no2 - K, o % no2 - K}, a[3] = {lax.x, lax.y, lax.z};
+        long sh = ((long)oo[a[0]] * Dy + oo[a[1]]) * Dz + oo[a[2]];
+        double one = 1, beta = o > 0;
+        for (int c = 0; c < 3; c++)
+          for (int k = 0; k < 2; k++)
+            if (cublasDgemmStridedBatched(hb, CUBLAS_OP_N, CUBLAS_OP_N, lB3, ncol, lB3, &one, dG + ((size_t)o * 3 + c) * lB3 * lB3, lB3, 0, dX + ((c0 + sh) * 3 + (c + 1 + k) % 3) * lB3, 3 * lB3, sp * 3 * lB3, &beta, dY + (c0 * 6 + 2 * c + k) * lB3, 6 * lB3, sp * 6 * lB3, lD.x) != CUBLAS_STATUS_SUCCESS) {
+              fprintf(stderr, "fmm3: error: cublasDgemm failed\n");
+              exit(1);
+            }
+      }
+      lcombp<<<grid((long)nlv * lB3), nthread>>>(t, ll, lo[ll], lB3, K, lax, lD, dY, ul);
     }
     ck(cudaEventRecord(e1), "cudaEventRecord");
     ck(cudaEventSynchronize(e1), "cudaEventSynchronize");
     float lm;
     ck(cudaEventElapsedTime(&lm, e0, e1), "cudaEventElapsedTime");
-    fprintf(stderr, "fmm3: lattice near field B %d Kc %d leaves %d offsets %d: %.6e s\n", B, Kc, nl, nof, lm / 1000);
+    fprintf(stderr, "fmm3: lattice near field B %d Kc %d leaves %d offsets %d: %.6e s\n", lB, lKc, nlv, nof, lm / 1000);
     launched("lattice");
   }
   if (t.per) {
