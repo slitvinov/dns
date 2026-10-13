@@ -1088,7 +1088,7 @@ int main(int argc, char **argv) {
   FILE *file;
   g.f = 0;
   char path[FILENAME_MAX], *ipath, *end;
-  double nu, dt, T1, t, x, X, Y, Z, sums[4], mx[4], sp[4], im[7], dd, F0 = 0, C = 0;
+  double nu, dt, T1, t, x, X, Y, Z, sums[4], mx[4], sp[4], im[7], dd, F0 = 0.1, C = 0;
   long nx, ny, nz, nt, ns, nd, np, tstep;
   int test, kern = 2, R = 0, M = 0;
   double O = 0, tout = 0;
@@ -1099,14 +1099,14 @@ int main(int argc, char **argv) {
   nu = dt = -1;
   T1 = dd = 0;
   ns = 10;
-  np = 0;
+  np = 1;
   test = 0;
   while (*++argv != NULL && argv[0][0] == '-') {
     if (argv[0][1] == 'h') {
       fprintf(stderr, "Usage: vm3 -x <nx> -y <ny> -z <nz> [-X <Lx/pi>] [-Y <Ly/pi>] "
                       "[-Z <Lz/pi>] -i <u.raw> -n <viscosity> -t <end time> -s <time "
-                      "step> [-o <diag every steps>] [-p <reproject every steps>] [-d "
-                      "<dump interval>] [-S <stretching: 0 transpose, 1 classic, 2 transpose with curl u, 3 mixed (classic + transpose)/2>] [-f <0 none, 1 2/3 rule, 2 Hou-Li filter>] [-C <Lagrangian CFL: dt = C / max|grad u| each step, replaces -s>] [-O <output time interval with -C>] [-R 1 (Eulerian RK stages, one remesh per step)] [-M 1 (dimension-split remeshing and interpolation)] [-k <remeshing kernel 4 (M4'), 6, 8>] [-v (log magnitude ranges)] [-F <t0>: the filter applied at each projection is mask^(p dt / t0), the same damping per unit time for any dt]\n       vm3 -T (unit tests)\n");
+                      "step> [-o <diag every steps>] [-p <reproject every steps, default 1, 0 never>] [-d "
+                      "<dump interval>] [-S <stretching: 0 transpose, 1 classic, 2 transpose with curl u, 3 mixed (classic + transpose)/2>] [-f <0 none, 1 2/3 rule, 2 Hou-Li filter>] [-C <Lagrangian CFL: dt = C / max|grad u| each step, replaces -s>] [-O <output time interval with -C>] [-R 1 (Eulerian RK stages, one remesh per step)] [-M 1 (dimension-split remeshing and interpolation)] [-k <remeshing kernel 4 (M4'), 6, 8>] [-v (log magnitude ranges)] [-F <t0>: the filter applied at each projection is mask^(p dt / t0), the same damping per unit time for any dt; default 0.1, 0 = full mask at every projection]\n       vm3 -T (unit tests)\n");
       exit(1);
     }
     if (argv[0][1] == 'T') {
