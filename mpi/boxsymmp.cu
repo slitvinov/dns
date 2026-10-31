@@ -62,7 +62,8 @@ static int nl; /* nl_a/nl_b stage (needs b[6]) */
 /* BOXSYM_HC=nch > 1: between the RK stages of a step the last z-stage, the update, spread5 and the first exchange of
    the next stage run in nch chunks of p rows (plans pzc, exchange counts per chunk); headdone: field 0 of this stage
    was sent that way */
-static int nch = 1, headdone;
+static int nch = 1, headdone, nrb = 1;
+static cufftHandle pxb[4], pzb[4];
 static cufftHandle pzc[4];
 static int *cnt_s[4], *dsp_s[4], *cnt_r[4], *dsp_r[4];
 static int selfx = 1; /* the folds write the own part of an exchange directly (BOXSYM_SELFCOPY=1: copy instead) */
@@ -151,13 +152,14 @@ __device__ static double2 ld2(const float2 *a, long i) {
 }
 __device__ static void st2(double2 *a, long i, double2 v) { a[i] = v; }
 __device__ static void st2(float2 *a, long i, double2 v) { a[i] = make_float2((float)v.x, (float)v.y); }
-template <class In> __global__ static void extx(long n, int odd, long M, const In *a, double2 *R) {
+/* x-stage kernels on the lines bb .. bb + Mb - 1 of M (R holds only those: R[(b - bb) n + m]) */
+template <class In> __global__ static void extx(long n, int odd, long M, const In *a, double2 *R, long bb, long Mb) {
   __shared__ double2 t[TL][TL + 1];
-  long b0 = blockIdx.x * (long)TL, m0 = blockIdx.y * (long)TL, N = n / 2;
+  long b0 = bb + blockIdx.x * (long)TL, m0 = blockIdx.y * (long)TL, N = n / 2;
   int x = threadIdx.x, y = threadIdx.y;
   for (int j = y; j < TL; j += TR) {
     long m = m0 + j, b = b0 + x, h = m <= N ? m : n - m;
-    if (m < n && b < M) {
+    if (m < n && b < bb + Mb) {
       double2 v = odd && (h == 0 || h == N) ? make_double2(0, 0) : ld2(a, h * M + b);
       t[j][x] = odd && m > N ? make_double2(-v.x, -v.y) : v;
     }
@@ -165,26 +167,27 @@ template <class In> __global__ static void extx(long n, int odd, long M, const I
   __syncthreads();
   for (int j = y; j < TL; j += TR) {
     long b = b0 + j, m = m0 + x;
-    if (m < n && b < M)
-      R[b * n + m] = t[x][j];
+    if (m < n && b < bb + Mb)
+      R[(b - bb) * n + m] = t[x][j];
   }
 }
 /* fold* write the own rank's part straight into the receive buffer (self, rows sp0 .. sp0 + spc - 1 of the
    fold output for foldx, section srank for foldz), so the exchange skips its local copy */
 template <class Out>
-__global__ static void foldx(long n, long M, const double2 *R, Out *a, Out *self, long sp0, long spc) {
+__global__ static void foldx(long n, long M, const double2 *R, Out *a, Out *self, long sp0, long spc, long bb,
+                             long Mb) {
   __shared__ double2 t[TL][TL + 1];
-  long b0 = blockIdx.x * (long)TL, p0 = blockIdx.y * (long)TL, N1 = n / 2 + 1;
+  long b0 = bb + blockIdx.x * (long)TL, p0 = blockIdx.y * (long)TL, N1 = n / 2 + 1;
   int x = threadIdx.x, y = threadIdx.y;
   for (int j = y; j < TL; j += TR) {
     long b = b0 + j, p = p0 + x;
-    if (p < N1 && b < M)
-      t[j][x] = R[b * n + p];
+    if (p < N1 && b < bb + Mb)
+      t[j][x] = R[(b - bb) * n + p];
   }
   __syncthreads();
   for (int j = y; j < TL; j += TR) {
     long p = p0 + j, b = b0 + x;
-    if (p < N1 && b < M) {
+    if (p < N1 && b < bb + Mb) {
       if (self != NULL && p >= sp0 && p < sp0 + spc)
         st2(self, (p - sp0) * M + b, t[x][j]);
       else
@@ -214,7 +217,7 @@ __global__ static void extz(long n, int odd, long Q, long Z1, long pc, long S, c
   for (int j = y; j < TL; j += TR) {
     long q = q0 + j, m = m0 + x;
     if (m < n && q < Q)
-      R[(pl * Q + q) * n + m] = t[x][j];
+      R[((pl - pl0) * Q + q) * n + m] = t[x][j];
   }
 }
 template <class Out>
@@ -227,7 +230,7 @@ __global__ static void foldz(long n, long Q, long Z1, long pc, long S, const dou
   for (int j = y; j < TL; j += TR) {
     long q = q0 + j, k = k0 + x;
     if (k < Z1 && q < Q)
-      t[j][x] = R[(pl * Q + q) * n + k];
+      t[j][x] = R[((pl - pl0) * Q + q) * n + k];
   }
   if (y == 0) {
     /* row offsets (64-bit divisions once per row); own section (self) encoded as -1 - offset */
@@ -262,22 +265,28 @@ static void waitrecv(cudaStream_t q, int s);
 /* chunk j of the p rows (local rows pa .. pb - 1; j = -1: all) */
 static long cha(int j) { return j < 0 ? 0 : first(g.pc, nch, j); }
 static long chb(int j) { return j < 0 ? g.pc : first(g.pc, nch, j + 1); }
+/* BOXSYM_RB = nrb > 1: x and z stages in nrb batches of lines, R holds one batch (plans pxb, pzb) */
+static long xba(int k) { return first(g.kc * g.Q, nrb, k); }
+static long zba(int k) { return first(g.pc, nrb, k); }
 /* src: the spectral field (x-slab), a: its receive buffer (src == a allowed: the exchange waits for the z-stage) */
 static void zsendc(int s, const double2 *src, double2 *a, int oz, int j) {
-  long pa = cha(j), pb = chb(j);
-  cufftHandle p = j < 0 ? pz : pzc[j];
-  extz<<<tiles(g.Q, g.nz, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, oz, g.Q, g.Z1, g.pc, 1, src, R, pa);
-  launched("extz");
-  cufft(cufftExecZ2Z(p, R + pa * g.Q * g.nz, R + pa * g.Q * g.nz, CUFFT_INVERSE), "cufftExecZ2Z");
-  if (j <= 0 && s >= nring())
-    waitrecv(st, s - nring());
-  if (lowp)
-    foldz<<<tiles(g.Q, g.Z1, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, size, R, (float2 *)tb(s),
-                                                               selfx ? (float2 *)a + rdz[rank] : NULL, rank, pa);
-  else
-    foldz<<<tiles(g.Q, g.Z1, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, size, R, (double2 *)tb(s),
-                                                               selfx ? a + rdz[rank] : NULL, rank, pa);
-  launched("foldz");
+  int nk = j < 0 ? nrb : 1;
+  for (int k = 0; k < nk; k++) {
+    long pa = j < 0 ? zba(k) : cha(j), pb = j < 0 ? zba(k + 1) : chb(j);
+    cufftHandle p = j < 0 ? pzb[k] : pzc[j];
+    extz<<<tiles(g.Q, g.nz, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, oz, g.Q, g.Z1, g.pc, 1, src, R, pa);
+    launched("extz");
+    cufft(cufftExecZ2Z(p, R, R, CUFFT_INVERSE), "cufftExecZ2Z");
+    if (j <= 0 && k == 0 && s >= nring())
+      waitrecv(st, s - nring());
+    if (lowp)
+      foldz<<<tiles(g.Q, g.Z1, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, size, R, (float2 *)tb(s),
+                                                                 selfx ? (float2 *)a + rdz[rank] : NULL, rank, pa);
+    else
+      foldz<<<tiles(g.Q, g.Z1, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, size, R, (double2 *)tb(s),
+                                                                 selfx ? a + rdz[rank] : NULL, rank, pa);
+    launched("foldz");
+  }
   if (j < 0) {
     rec(0, s, st);
     waitev(sc, 0, s);
@@ -302,14 +311,17 @@ static void waitrecv(cudaStream_t q, int s) {
 }
 /* x-stage and y C2R of a received field (x parity ox) */
 static void xstage(double2 *a, int ox) {
-  if (lowp)
-    extx<<<tiles(g.kc * g.Q, g.nx, 1), dim3(TL, TR), 0, st>>>(g.nx, ox, g.kc * g.Q, (const float2 *)a, R);
-  else
-    extx<<<tiles(g.kc * g.Q, g.nx, 1), dim3(TL, TR), 0, st>>>(g.nx, ox, g.kc * g.Q, (const double2 *)a, R);
-  launched("extx");
-  cufft(cufftExecZ2Z(px, R, R, CUFFT_INVERSE), "cufftExecZ2Z");
-  foldx<<<tiles(g.kc * g.Q, g.X1, 1), dim3(TL, TR), 0, st>>>(g.nx, g.kc * g.Q, R, a, (double2 *)NULL, 0, 0);
-  launched("foldx");
+  for (int k = 0; k < nrb; k++) {
+    long bb = xba(k), Mb = xba(k + 1) - bb;
+    if (lowp)
+      extx<<<tiles(Mb, g.nx, 1), dim3(TL, TR), 0, st>>>(g.nx, ox, g.kc * g.Q, (const float2 *)a, R, bb, Mb);
+    else
+      extx<<<tiles(Mb, g.nx, 1), dim3(TL, TR), 0, st>>>(g.nx, ox, g.kc * g.Q, (const double2 *)a, R, bb, Mb);
+    launched("extx");
+    cufft(cufftExecZ2Z(pxb[k], R, R, CUFFT_INVERSE), "cufftExecZ2Z");
+    foldx<<<tiles(Mb, g.X1, 1), dim3(TL, TR), 0, st>>>(g.nx, g.kc * g.Q, R, a, (double2 *)NULL, 0, 0, bb, Mb);
+    launched("foldx");
+  }
   cufft(cufftExecZ2D(py[1], a, (double *)a), "cufftExecZ2D");
 }
 /* n fields a[c] with parities ox[c], oz[c]. Pipelined: the all-to-all of field c (stream sc, buffer
@@ -362,36 +374,42 @@ static void synth5(double2 **b) {
    events [k][s]); azstage: z-stage of the received field s into a (z parity oz). Event 2: tb(s) read, free again. */
 static void asend(int s, double2 *a, int ox) {
   cufft(cufftExecD2Z(py[0], (double *)a, a), "cufftExecD2Z");
-  extx<<<tiles(g.kc * g.Q, g.nx, 1), dim3(TL, TR), 0, st>>>(g.nx, ox, g.kc * g.Q, (const double2 *)a, R);
-  launched("extx");
-  cufft(cufftExecZ2Z(px, R, R, CUFFT_FORWARD), "cufftExecZ2Z");
-  if (lowp)
-    foldx<<<tiles(g.kc * g.Q, g.X1, 1), dim3(TL, TR), 0, st>>>(g.nx, g.kc * g.Q, R, (float2 *)a,
-                                                               selfx ? (float2 *)tb(s) + sdz[rank] : NULL, g.p0, g.pc);
-  else
-    foldx<<<tiles(g.kc * g.Q, g.X1, 1), dim3(TL, TR), 0, st>>>(g.nx, g.kc * g.Q, R, a,
-                                                               selfx ? (double2 *)tb(s) + sdz[rank] : NULL, g.p0, g.pc);
-  launched("foldx");
+  for (int k = 0; k < nrb; k++) {
+    long bb = xba(k), Mb = xba(k + 1) - bb;
+    extx<<<tiles(Mb, g.nx, 1), dim3(TL, TR), 0, st>>>(g.nx, ox, g.kc * g.Q, (const double2 *)a, R, bb, Mb);
+    launched("extx");
+    cufft(cufftExecZ2Z(pxb[k], R, R, CUFFT_FORWARD), "cufftExecZ2Z");
+    if (lowp)
+      foldx<<<tiles(Mb, g.X1, 1), dim3(TL, TR), 0, st>>>(g.nx, g.kc * g.Q, R, (float2 *)a,
+                                                         selfx ? (float2 *)tb(s) + sdz[rank] : NULL, g.p0, g.pc, bb, Mb);
+    else
+      foldx<<<tiles(Mb, g.X1, 1), dim3(TL, TR), 0, st>>>(g.nx, g.kc * g.Q, R, a,
+                                                         selfx ? (double2 *)tb(s) + sdz[rank] : NULL, g.p0, g.pc, bb, Mb);
+    launched("foldx");
+  }
   rec(0, s, st);
   waitev(sc, 0, s);
   a2a(a, rcz, rdz, tb(s), scz, sdz);
   rec(1, s, sc);
 }
 static void azstagec(int s, double2 *a, int oz, int j) {
-  long pa = cha(j), pb = chb(j);
-  cufftHandle p = j < 0 ? pz : pzc[j];
+  int nk = j < 0 ? nrb : 1;
   if (j <= 0)
     waitev(st, 1, s);
-  if (lowp)
-    extz<<<tiles(g.Q, g.nz, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, oz, g.Q, g.Z1, g.pc, size, (const float2 *)tb(s), R, pa);
-  else
-    extz<<<tiles(g.Q, g.nz, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, oz, g.Q, g.Z1, g.pc, size, (const double2 *)tb(s), R, pa);
-  launched("extz");
-  if (j < 0 || j == nch - 1)
-    rec(2, s, st);
-  cufft(cufftExecZ2Z(p, R + pa * g.Q * g.nz, R + pa * g.Q * g.nz, CUFFT_FORWARD), "cufftExecZ2Z");
-  foldz<<<tiles(g.Q, g.Z1, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, 1, R, a, (double2 *)NULL, 0, pa);
-  launched("foldz");
+  for (int k = 0; k < nk; k++) {
+    long pa = j < 0 ? zba(k) : cha(j), pb = j < 0 ? zba(k + 1) : chb(j);
+    cufftHandle p = j < 0 ? pzb[k] : pzc[j];
+    if (lowp)
+      extz<<<tiles(g.Q, g.nz, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, oz, g.Q, g.Z1, g.pc, size, (const float2 *)tb(s), R, pa);
+    else
+      extz<<<tiles(g.Q, g.nz, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, oz, g.Q, g.Z1, g.pc, size, (const double2 *)tb(s), R, pa);
+    launched("extz");
+    if ((j < 0 && k == nk - 1) || j == nch - 1)
+      rec(2, s, st);
+    cufft(cufftExecZ2Z(p, R, R, CUFFT_FORWARD), "cufftExecZ2Z");
+    foldz<<<tiles(g.Q, g.Z1, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, 1, R, a, (double2 *)NULL, 0, pa);
+    launched("foldz");
+  }
 }
 static void azstage(int s, double2 *a, int oz) { azstagec(s, a, oz, -1); }
 static void analysis(int n, double2 **a, const int *ox, const int *oz) {
@@ -1165,8 +1183,26 @@ int main(int argc, char **argv) {
   g.az = 2 / Z;
   nloc = g.X1 * g.kc * ny;
   nb = g.nf > g.X1 * g.kc * g.Q ? g.nf : g.X1 * g.kc * g.Q;
-  nR = nx * g.kc > nz * g.pc ? nx * g.kc : nz * g.pc;
-  nR *= g.Q;
+  /* BOXSYM_RB: the FFT buffer R holds one of nrb batches of x and z lines (less memory, more launches) */
+  nrb = getenv("BOXSYM_RB") != NULL ? atoi(getenv("BOXSYM_RB")) : 1;
+  if (nrb < 1)
+    nrb = 1;
+  if (nrb > 4)
+    nrb = 4;
+  if (nrb > g.pc)
+    nrb = g.pc > 0 ? g.pc : 1;
+  if (nrb > 1 && sflag) /* with float exchange buffers the received float field shares its buffer with the double
+                          x-stage output, which needs all lines read first */
+    fail("BOXSYM_RB > 1 needs the double exchange (no -S)%s%s", "", "");
+  {
+    long mx_ = 0, mz_ = 0;
+    for (int k = 0; k < nrb; k++) {
+      long a_ = first(g.kc * g.Q, nrb, k + 1) - first(g.kc * g.Q, nrb, k), b_ = first(g.pc, nrb, k + 1) - first(g.pc, nrb, k);
+      mx_ = a_ > mx_ ? a_ : mx_;
+      mz_ = b_ > mz_ ? b_ : mz_;
+    }
+    nR = nx * mx_ > nz * mz_ * g.Q ? nx * mx_ : nz * mz_ * g.Q;
+  }
   if ((scz = (int *)malloc(4 * size * sizeof(int))) == NULL)
     fail("malloc failed%s%s", "", "");
   sdz = scz + size;
@@ -1253,8 +1289,19 @@ int main(int argc, char **argv) {
       (host = (double *)malloc(nloc * sizeof(double))) == NULL)
     fail("malloc failed%s%s", "", "");
   ws = 0;
-  plan(&px, nx, nx, nx, nx, nx, 1, g.kc * g.Q, CUFFT_Z2Z, &ws);
-  plan(&pz, nz, nz, nz, nz, nz, 1, g.pc * g.Q, CUFFT_Z2Z, &ws);
+  if (nrb == 1) {
+    plan(&px, nx, nx, nx, nx, nx, 1, g.kc * g.Q, CUFFT_Z2Z, &ws);
+    plan(&pz, nz, nz, nz, nz, nz, 1, g.pc * g.Q, CUFFT_Z2Z, &ws);
+    pxb[0] = px;
+    pzb[0] = pz;
+  } else {
+    for (int k = 0; k < nrb; k++) {
+      plan(&pxb[k], nx, nx, nx, nx, nx, 1, xba(k + 1) - xba(k), CUFFT_Z2Z, &ws);
+      plan(&pzb[k], nz, nz, nz, nz, nz, 1, (zba(k + 1) - zba(k)) * g.Q, CUFFT_Z2Z, &ws);
+    }
+    px = pxb[0];
+    pz = pzb[0];
+  }
   /* chunked stage boundaries (BOXSYM_HC): every rank needs at least nch p rows */
   nch = getenv("BOXSYM_HC") != NULL ? atoi(getenv("BOXSYM_HC")) : 1;
   if (nch < 1 || !nl)
@@ -1263,6 +1310,8 @@ int main(int argc, char **argv) {
     nch = 4;
   if (nch > g.X1 / size)
     nch = g.X1 / size;
+  if (nrb > 1 && nch > 1 && nch < nrb) /* a chunk must fit R */
+    nch = nrb;
   for (int j = 0; nch > 1 && j < nch; j++) {
     plan(&pzc[j], nz, nz, nz, nz, nz, 1, (chb(j) - cha(j)) * g.Q, CUFFT_Z2Z, &ws);
     if ((cnt_s[j] = (int *)malloc(4 * size * sizeof(int))) == NULL)
@@ -1285,6 +1334,12 @@ int main(int argc, char **argv) {
   for (int q = 0; q < 4; q++) {
     cufft(cufftSetWorkArea(*all[q], work), "cufftSetWorkArea");
     cufft(cufftSetStream(*all[q], st), "cufftSetStream");
+  }
+  for (int k = 1; k < nrb; k++) {
+    cufft(cufftSetWorkArea(pxb[k], work), "cufftSetWorkArea");
+    cufft(cufftSetStream(pxb[k], st), "cufftSetStream");
+    cufft(cufftSetWorkArea(pzb[k], work), "cufftSetWorkArea");
+    cufft(cufftSetStream(pzb[k], st), "cufftSetStream");
   }
   for (int j = 0; nch > 1 && j < nch; j++) {
     cufft(cufftSetWorkArea(pzc[j], work), "cufftSetWorkArea");
