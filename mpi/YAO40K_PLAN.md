@@ -202,8 +202,9 @@ P3. |w|max against the paper (2026-10-31)
     t* 1.65-1.73: paper 15.28 at 1.700 | 384 14.42 | 512 14.88 at 1.708 | 768 14.60 at 1.704
     t* 1.73-1.80: paper 14.78 at 1.757 | 384 13.14 | 512 15.08 at 1.774 | 768 15.33 at 1.766
     t* 1.95-2.10: paper 8.47 at 2.028  | 384 8.48  | 512 8.45            | 768 8.55
-  512 -> 768: -2% (first spike), +1.7% (second); overall max 15.08 -> 15.33. So far the spectral |w|max sits within
-  ~2-4% of the paper's spikes, not +12% (the vm3 2pi/2048 window). Re 5000 at 1024 added (slot g3, run/r5k1024) to settle
-  the 768 -> 1024 step. Rule for Re 40000: report (a) the rung nearest Yao's effective kmax (2/3 rule at 4096: kmax 1365;
+  512 -> 768: -2% (first spike), +1.7% (second); overall max 15.08 -> 15.33. The spectral |w|max sits within ~2-4% of
+  the paper's spikes, and vm3 converged (14.83 / 15.57; paper 15.28 / 14.78, exact vector path) agrees with our 768
+  (14.60 / 15.33): no disagreement between the codes (the earlier "+12%" came from coarse sampling of the paper curve).
+  Re 5000 at 1024 added (slot g3, run/r5k1024) to close the spectral side (768 -> 1024). Rule for Re 40000: report (a) the rung nearest Yao's effective kmax (2/3 rule at 4096: kmax 1365;
   our Hou-Li keeps ~0.45 n: 3072 -> ~1380), (b) the extrapolated value with its spread; do not tune toward 568.6.
   The 4096-window gate is about our own convergence only.
