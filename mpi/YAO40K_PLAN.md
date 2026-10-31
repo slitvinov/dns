@@ -154,3 +154,27 @@ G2. Re 40000 ladder near the peak: 1536 to t* 1.4 (3850 steps, 4 H200, ~0.7 h), 
 G3. (B) the vm3 checks: L1 Re 5000 2pi/2048 window on one H200 (|w|max within 3% of 1024?), L2 Re 9000 2pi/2048 window,
     mode Q scaling 4/8/16/32 (go if 16 >= 2.5x over 4), node count at t* 1.0 (y40b).
 G4. Before the production start: lab OK for ~600 GB netscratch; the 16-GPU s/step of G2 within 30% of the model.
+
+P. Approved run (Sergey, 2026-10-31): one spectral Re 40000 run, coarse to fine, to t* 2.3
+=========================================================================================
+Gates (all must pass before the fine phase; the launch is then automatic):
+  R1 coarse-to-fine at Re 9000 (team-h100): 512 to t* 1.3, padded to 1024, to t* 2.6, against the straight 1024 run
+     r9k1024 (-S, C 1). Pass: Omega peak < 0.1% and |w|max peak < 2% apart.
+  R2 -S at Re 9000 (team-h100): 768 without -S against r9k768 (-S). Pass: Omega peak < 0.2%, |w|max peak < 2%.
+     (At Re 5000, 512, whole run: -S moved Omega by <= 2.5e-9 and the grid max |w| by <= 1.2e-7.)
+  G1 Re 20000 1536 and 2048 (FASRC 4 H200, running): Omega peak within 0.3%, |w| peak within 3%, and close to the paper.
+Phases (FASRC, j, --exclude=holygpu8a12204; netscratch yspec/):
+  base  1536^3, t* 0 -> 1.3 (t 2.7911), 4 H200 (slot yspec-g2, g2base.sh): ~3500 steps at C 2, 0.63 s/step (m): 0.6 h,
+        2.5 H200-h; k. dump 22 GB = the common start of the ladder and of the fine phase.
+  G2 rungs from that dump, zero-padded, to t* 1.95 (lad.sh, no dumps): 2048 on 4 H200 (~4100 steps, ~1.4 h, ~6 H200-h),
+        2560 on 16 H200 (~5200 steps, ~1.4 h, ~22 H200-h).
+  fine  3072^3 = the G2 3072 rung, t* 1.3 -> 2.3 (t 4.9381), 16 H200 (slot yspec-l4, prod3072.sh after the 2560 rung):
+        ~9800 steps at C 2 (+30% if U at 3072 exceeds the 1024 history), ~1.5 s/step (model until measured):
+        4-5.3 h, 66-85 H200-h. Requeueable chunks of 4-7 h: k. dumps every 0.25 in t (~1 h of wall), newest two kept
+        (2 x 174 GB) plus the t* 1.85 field (174 GB) and the base (22 GB): <= ~550 GB on netscratch (600 GB approved).
+  Flags: -c 2, -F 0.00125*512/n (filter as a rate), -S, -e 0.1 (spectra), diagnostics every 10 steps (Omega, |w|max,
+        Gz, E, dt).
+Total with the checks: G1 ~18 + base 2.5 + rungs ~28 + fine 66-85 = ~115-135 H200-h.
+Analysis: Omega and |w|max peaks from 2048/2560/3072 (common t* 1.3 start) with Richardson extrapolation in kc
+(order fitted from the three rungs) and the spread as error bar; against the paper's 11.81 and 569.
+Afterwards: keep out/err/e. files and the t* 1.85 k. dump (plus a 512^3 |w|/w_z float16 export); delete the rest.
