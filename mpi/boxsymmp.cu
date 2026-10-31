@@ -58,6 +58,12 @@ static int syn6; /* BOXSYM_SYN6=1: RK stages synthesize u and omega by six excha
 static int nocomm; /* BOXSYM_NOCOMM=1 (timing only): the exchanges are skipped, results are garbage */
 static int nofuse; /* BOXSYM_NOFUSE=1: diagnostics from a synthesis of their own (the old way) */
 static int nl; /* nl_a/nl_b stage (needs b[6]) */
+/* BOXSYM_HC=nch > 1: between the RK stages of a step the last z-stage, the update, spread5 and the first exchange of
+   the next stage run in nch chunks of p rows (plans pzc, exchange counts per chunk); headdone: field 0 of this stage
+   was sent that way */
+static int nch = 1, headdone;
+static cufftHandle pzc[4];
+static int *cnt_s[4], *dsp_s[4], *cnt_r[4], *dsp_r[4];
 static int selfx = 1; /* the folds write the own part of an exchange directly (BOXSYM_SELFCOPY=1: copy instead) */
 static cudaStream_t st, sc; /* compute, all-to-all */
 static cudaEvent_t ev[4][8];   /* pipeline events: [kind][field] */
@@ -186,9 +192,9 @@ __global__ static void foldx(long n, long M, const double2 *R, Out *a, Out *self
   }
 }
 template <class In>
-__global__ static void extz(long n, int odd, long Q, long Z1, long pc, long S, const In *a, double2 *R) {
+__global__ static void extz(long n, int odd, long Q, long Z1, long pc, long S, const In *a, double2 *R, long pl0) {
   __shared__ double2 t[TL][TL + 1];
-  long q0 = blockIdx.x * (long)TL, m0 = blockIdx.y * (long)TL, pl = blockIdx.z, N = n / 2;
+  long q0 = blockIdx.x * (long)TL, m0 = blockIdx.y * (long)TL, pl = pl0 + blockIdx.z, N = n / 2;
   int x = threadIdx.x, y = threadIdx.y;
   for (int j = y; j < TL; j += TR) {
     long m = m0 + j, q = q0 + x, h = m <= N ? m : n - m;
@@ -206,9 +212,9 @@ __global__ static void extz(long n, int odd, long Q, long Z1, long pc, long S, c
 }
 template <class Out>
 __global__ static void foldz(long n, long Q, long Z1, long pc, long S, const double2 *R, Out *a, Out *self,
-                             long srank) {
+                             long srank, long pl0) {
   __shared__ double2 t[TL][TL + 1];
-  long q0 = blockIdx.x * (long)TL, k0 = blockIdx.y * (long)TL, pl = blockIdx.z;
+  long q0 = blockIdx.x * (long)TL, k0 = blockIdx.y * (long)TL, pl = pl0 + blockIdx.z;
   int x = threadIdx.x, y = threadIdx.y;
   for (int j = y; j < TL; j += TR) {
     long q = q0 + j, k = k0 + x;
@@ -239,23 +245,47 @@ static void *tb(int s) {
 }
 /* z-stage of field a (z parity oz) and its all-to-all; s = sequence number of the exchange in this synthesis
    (events [k][s], send buffer tb(s)). Events: 0 compute side done with tb(s), 1 all-to-all s done. */
-static void zsend(int s, double2 *a, int oz) {
-  extz<<<tiles(g.Q, g.nz, g.pc), dim3(TL, TR), 0, st>>>(g.nz, oz, g.Q, g.Z1, g.pc, 1, (const double2 *)a, R);
+static void waitrecv(cudaStream_t q, int s);
+/* chunk j of the p rows (local rows pa .. pb - 1; j = -1: all) */
+static long cha(int j) { return j < 0 ? 0 : first(g.pc, nch, j); }
+static long chb(int j) { return j < 0 ? g.pc : first(g.pc, nch, j + 1); }
+/* src: the spectral field (x-slab), a: its receive buffer (src == a allowed: the exchange waits for the z-stage) */
+static void zsendc(int s, const double2 *src, double2 *a, int oz, int j) {
+  long pa = cha(j), pb = chb(j);
+  cufftHandle p = j < 0 ? pz : pzc[j];
+  extz<<<tiles(g.Q, g.nz, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, oz, g.Q, g.Z1, g.pc, 1, src, R, pa);
   launched("extz");
-  cufft(cufftExecZ2Z(pz, R, R, CUFFT_INVERSE), "cufftExecZ2Z");
-  if (s >= nring())
-    waitev(st, 1, s - nring());
+  cufft(cufftExecZ2Z(p, R + pa * g.Q * g.nz, R + pa * g.Q * g.nz, CUFFT_INVERSE), "cufftExecZ2Z");
+  if (j <= 0 && s >= nring())
+    waitrecv(st, s - nring());
   if (lowp)
-    foldz<<<tiles(g.Q, g.Z1, g.pc), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, size, R, (float2 *)tb(s),
-                                                           selfx ? (float2 *)a + rdz[rank] : NULL, rank);
+    foldz<<<tiles(g.Q, g.Z1, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, size, R, (float2 *)tb(s),
+                                                               selfx ? (float2 *)a + rdz[rank] : NULL, rank, pa);
   else
-    foldz<<<tiles(g.Q, g.Z1, g.pc), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, size, R, T[s % 2],
-                                                           selfx ? a + rdz[rank] : NULL, rank);
+    foldz<<<tiles(g.Q, g.Z1, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, size, R, (double2 *)tb(s),
+                                                               selfx ? a + rdz[rank] : NULL, rank, pa);
   launched("foldz");
-  rec(0, s, st);
-  waitev(sc, 0, s);
-  a2a(tb(s), scz, sdz, a, rcz, rdz);
-  rec(1, s, sc);
+  if (j < 0) {
+    rec(0, s, st);
+    waitev(sc, 0, s);
+    a2a(tb(s), scz, sdz, a, rcz, rdz);
+    rec(1, s, sc);
+  } else {
+    /* chunk exchange: events [3][j] (compute done), [3][4 + j] (exchange done) */
+    rec(3, j, st);
+    waitev(sc, 3, j);
+    a2a(tb(s), cnt_s[j], dsp_s[j], a, cnt_r[j], dsp_r[j]);
+    rec(3, 4 + j, sc);
+  }
+}
+static void zsend(int s, double2 *a, int oz) { zsendc(s, a, a, oz, -1); }
+/* field s = 0 may have been sent in chunks at the end of the previous stage (headdone) */
+static void waitrecv(cudaStream_t q, int s) {
+  if (s == 0 && headdone)
+    for (int j = 0; j < nch; j++)
+      waitev(q, 3, 4 + j);
+  else
+    waitev(q, 1, s);
 }
 /* x-stage and y C2R of a received field (x parity ox) */
 static void xstage(double2 *a, int ox) {
@@ -334,18 +364,23 @@ static void asend(int s, double2 *a, int ox) {
   a2a(a, rcz, rdz, tb(s), scz, sdz);
   rec(1, s, sc);
 }
-static void azstage(int s, double2 *a, int oz) {
-  waitev(st, 1, s);
+static void azstagec(int s, double2 *a, int oz, int j) {
+  long pa = cha(j), pb = chb(j);
+  cufftHandle p = j < 0 ? pz : pzc[j];
+  if (j <= 0)
+    waitev(st, 1, s);
   if (lowp)
-    extz<<<tiles(g.Q, g.nz, g.pc), dim3(TL, TR), 0, st>>>(g.nz, oz, g.Q, g.Z1, g.pc, size, (const float2 *)tb(s), R);
+    extz<<<tiles(g.Q, g.nz, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, oz, g.Q, g.Z1, g.pc, size, (const float2 *)tb(s), R, pa);
   else
-    extz<<<tiles(g.Q, g.nz, g.pc), dim3(TL, TR), 0, st>>>(g.nz, oz, g.Q, g.Z1, g.pc, size, (const double2 *)tb(s), R);
+    extz<<<tiles(g.Q, g.nz, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, oz, g.Q, g.Z1, g.pc, size, (const double2 *)tb(s), R, pa);
   launched("extz");
-  rec(2, s, st);
-  cufft(cufftExecZ2Z(pz, R, R, CUFFT_FORWARD), "cufftExecZ2Z");
-  foldz<<<tiles(g.Q, g.Z1, g.pc), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, 1, R, a, (double2 *)NULL, 0);
+  if (j < 0 || j == nch - 1)
+    rec(2, s, st);
+  cufft(cufftExecZ2Z(p, R + pa * g.Q * g.nz, R + pa * g.Q * g.nz, CUFFT_FORWARD), "cufftExecZ2Z");
+  foldz<<<tiles(g.Q, g.Z1, pb - pa), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, 1, R, a, (double2 *)NULL, 0, pa);
   launched("foldz");
 }
+static void azstage(int s, double2 *a, int oz) { azstagec(s, a, oz, -1); }
 static void analysis(int n, double2 **a, const int *ox, const int *oz) {
   for (int c = 0; c <= n; c++) {
     if (c < n) {
@@ -375,43 +410,60 @@ __global__ static void cross12(G g, double s, double *b0, double *b1, const doub
   b0[l] = s * s * (w * p - u * r);
   b1[l] = s * s * (u * q - v * p);
 }
-/* the nonlinear term of an RK stage with N_x started before omega_x has arrived: b0..b4 = u, v, w, omega_x,
-   omega_y spectral (spread5) -> exchanges u, v, w, omega_y, omega_x (seq 0-4), omega_z formed after u, v;
-   N_x into b6 and its exchange (seq 5) as soon as v, w, omega_y, omega_z are physical; nl_a ends with all six
-   fields physical (b0..b5: diagnostics may run here); nl_b leaves N spectral in b6, b0, b1. */
-static void nl_a(double2 **b, double s) {
-  const int o[4] = {0, 1, 2, 4};
-  for (int c = 0; c < 4; c++)
-    zsend(c, b[o[c]], oz6[o[c]]);
-  waitev(st, 1, 0);
+/* the nonlinear term of an RK stage with N_x started before omega_x has arrived. Roles U V W OX OY OZ N0 live in
+   b[bm[role]] (the map rotates at chunked stage boundaries). u, v, w are sent from the state u[] (receive into U, V,
+   W), omega_y and omega_x from OY, OX (spectral, spreadw); omega_z is formed after u, v arrive. N_x into N0 and
+   its exchange (seq 5) as soon as v, w, omega_y, omega_z are physical; nl_a ends with the six fields physical
+   (diagnostics may run there); nl_b leaves N spectral in N0, U, V (N_x, N_y, N_z). */
+enum { U_, V_, W_, OX_, OY_, OZ_, N0_ };
+static int bm[7] = {0, 1, 2, 3, 4, 5, 6};
+static void nl_a(double2 **b, double2 **u, double s) {
+#define B_(r) b[bm[r]]
+  for (int c = headdone; c < 3; c++)
+    zsendc(c, u[c], B_(c), oz6[c], -1);
+  zsend(3, B_(OY_), oz6[4]);
+  waitrecv(st, 0);
   waitev(st, 1, 1);
-  vortz(b[0], b[1], b[5]);
-  xstage(b[0], ox6[0]);
-  xstage(b[1], ox6[1]);
-  zsend(4, b[3], oz6[3]);
-  xstage(b[5], ox6[5]);
+  vortz(B_(U_), B_(V_), B_(OZ_));
+  xstage(B_(U_), ox6[0]);
+  xstage(B_(V_), ox6[1]);
+  zsend(4, B_(OX_), oz6[3]);
+  xstage(B_(OZ_), ox6[5]);
   waitev(st, 1, 2);
-  xstage(b[2], ox6[2]);
+  xstage(B_(W_), ox6[2]);
   waitev(st, 1, 3);
-  xstage(b[4], ox6[4]);
-  cross0<<<grid(g.nr), nthread, 0, st>>>(g, s, (double *)b[1], (double *)b[2], (double *)b[4], (double *)b[5],
-                                         (double *)b[6]);
+  xstage(B_(OY_), ox6[4]);
+  cross0<<<grid(g.nr), nthread, 0, st>>>(g, s, (double *)B_(V_), (double *)B_(W_), (double *)B_(OY_),
+                                         (double *)B_(OZ_), (double *)B_(N0_));
   launched("cross0");
-  asend(5, b[6], ux[0]);
+  asend(5, B_(N0_), ux[0]);
   waitev(st, 1, 4);
-  xstage(b[3], ox6[3]);
+  xstage(B_(OX_), ox6[3]);
 }
-static void nl_b(double2 **b, double s) {
-  cross12<<<grid(g.nr), nthread, 0, st>>>(g, s, (double *)b[0], (double *)b[1], (double *)b[2], (double *)b[3],
-                                          (double *)b[4], (double *)b[5]);
+static void nl_b(double2 **b, double s, int head) {
+  cross12<<<grid(g.nr), nthread, 0, st>>>(g, s, (double *)B_(U_), (double *)B_(V_), (double *)B_(W_),
+                                          (double *)B_(OX_), (double *)B_(OY_), (double *)B_(OZ_));
   launched("cross12");
-  asend(6, b[0], ux[1]);
-  azstage(5, b[6], uz[0]);
+  asend(6, B_(U_), ux[1]);
+  azstage(5, B_(N0_), uz[0]);
   if (7 - 5 >= nring())
     waitev(sc, 2, 5);
-  asend(7, b[1], ux[2]);
-  azstage(6, b[0], uz[1]);
-  azstage(7, b[1], uz[2]);
+  asend(7, B_(V_), ux[2]);
+  azstage(6, B_(U_), uz[1]);
+  if (!head)
+    azstage(7, B_(V_), uz[2]);
+}
+/* omega_x, omega_y spectral (modes l0 .. l1 - 1) for nl_a */
+__global__ static void spreadw(G g, const double2 *u, const double2 *v, const double2 *w, double2 *ox, double2 *oy,
+                               long l0, long l1) {
+  long l = l0 + blockIdx.x * (long)blockDim.x + threadIdx.x, i, j, k;
+  double kx, ky, kz;
+  if (l >= l1)
+    return;
+  mode(g, l, &i, &j, &k, &kx, &ky, &kz);
+  double2 a = u[l], b = v[l], c = w[l];
+  ox[l] = make_double2(-(ky * c.y - kz * b.y), ky * c.x - kz * b.x);
+  oy[l] = make_double2(-(kz * a.y - kx * c.y), kz * a.x - kx * c.x);
 }
 __global__ static void spread(G g, const double2 *u, const double2 *v,
                               const double2 *w, double2 *b0, double2 *b1,
@@ -432,10 +484,10 @@ __global__ static void spread(G g, const double2 *u, const double2 *v,
 }
 /* spectral inputs of synth5: u, v, w, omega_x, omega_y (as spread) */
 __global__ static void spread5(G g, const double2 *u, const double2 *v, const double2 *w, double2 *b0, double2 *b1,
-                               double2 *b2, double2 *b3, double2 *b4) {
-  long l = blockIdx.x * (long)blockDim.x + threadIdx.x, i, j, k;
+                               double2 *b2, double2 *b3, double2 *b4, long l0, long l1) {
+  long l = l0 + blockIdx.x * (long)blockDim.x + threadIdx.x, i, j, k;
   double kx, ky, kz;
-  if (l >= g.nf)
+  if (l >= l1)
     return;
   mode(g, l, &i, &j, &k, &kx, &ky, &kz);
   double2 a = u[l], b = v[l], c = w[l];
@@ -461,10 +513,10 @@ __global__ static void update(G g, int last, double nu, double dt, double a, dou
                               const double2 *f0, const double2 *f1,
                               const double2 *f2, double2 *u, double2 *v,
                               double2 *w, double2 *du, double2 *dv,
-                              double2 *dw) {
-  long l = blockIdx.x * (long)blockDim.x + threadIdx.x, i, j, k;
+                              double2 *dw, long l0, long l1) {
+  long l = l0 + blockIdx.x * (long)blockDim.x + threadIdx.x, i, j, k;
   double kx, ky, kz;
-  if (l >= g.nf)
+  if (l >= l1)
     return;
   mode(g, l, &i, &j, &k, &kx, &ky, &kz);
   double kk = kx * kx + ky * ky + kz * kz, m = g.mfx[i] * g.mfy[j] * g.mfz[k], visc = nu * kk;
@@ -868,7 +920,7 @@ int main(int argc, char **argv) {
   long ne, nL, nT = 0, *Ts = NULL;
   double nu, dt, T_, t, dd, F, X, Y, Z, x, N, s, cx, cy, cz, kc, sums[6], mx[2],
       *host, *dP, *P, t0, t1, tio;
-  double2 *u[3], *du[3], *b[7];
+  double2 *u[3], *du[3], *b[7], *dg[6];
   long tstep, start, nd, nx, ny, nz, nt, nloc, nb, nR;
   size_t ws, fr, tot;
   void *work;
@@ -1144,12 +1196,40 @@ int main(int argc, char **argv) {
   ws = 0;
   plan(&px, nx, nx, nx, nx, nx, 1, g.kc * g.Q, CUFFT_Z2Z, &ws);
   plan(&pz, nz, nz, nz, nz, nz, 1, g.pc * g.Q, CUFFT_Z2Z, &ws);
+  /* chunked stage boundaries (BOXSYM_HC): every rank needs at least nch p rows */
+  nch = getenv("BOXSYM_HC") != NULL ? atoi(getenv("BOXSYM_HC")) : 1;
+  if (nch < 1 || !nl)
+    nch = 1;
+  if (nch > 4)
+    nch = 4;
+  if (nch > g.X1 / size)
+    nch = g.X1 / size;
+  for (int j = 0; nch > 1 && j < nch; j++) {
+    plan(&pzc[j], nz, nz, nz, nz, nz, 1, (chb(j) - cha(j)) * g.Q, CUFFT_Z2Z, &ws);
+    if ((cnt_s[j] = (int *)malloc(4 * size * sizeof(int))) == NULL)
+      fail("malloc failed%s%s", "", "");
+    dsp_s[j] = cnt_s[j] + size;
+    cnt_r[j] = dsp_s[j] + size;
+    dsp_r[j] = cnt_r[j] + size;
+    for (int q = 0; q < size; q++) {
+      long kq = first(g.Z1, size, q + 1) - first(g.Z1, size, q), pq = first(g.X1, size, q + 1) - first(g.X1, size, q);
+      long qa = first(pq, nch, j), qb = first(pq, nch, j + 1);
+      cnt_s[j][q] = (chb(j) - cha(j)) * kq * g.Q;
+      dsp_s[j][q] = sdz[q] + cha(j) * kq * g.Q;
+      cnt_r[j][q] = (qb - qa) * g.kc * g.Q;
+      dsp_r[j][q] = rdz[q] + qa * g.kc * g.Q;
+    }
+  }
   plan(&py[0], ny, 2 * g.Q, 2 * g.Q, g.Q, g.Q, 1, g.X1 * g.kc, CUFFT_D2Z, &ws);
   plan(&py[1], ny, g.Q, g.Q, 2 * g.Q, 2 * g.Q, 1, g.X1 * g.kc, CUFFT_Z2D, &ws);
   cuda(cudaMalloc(&work, ws > 0 ? ws : 1), "cudaMalloc");
   for (int q = 0; q < 4; q++) {
     cufft(cufftSetWorkArea(*all[q], work), "cufftSetWorkArea");
     cufft(cufftSetStream(*all[q], st), "cufftSetStream");
+  }
+  for (int j = 0; nch > 1 && j < nch; j++) {
+    cufft(cufftSetWorkArea(pzc[j], work), "cufftSetWorkArea");
+    cufft(cufftSetStream(pzc[j], st), "cufftSetStream");
   }
   cuda(cudaMemGetInfo(&fr, &tot), "cudaMemGetInfo");
   char host_name[256] = "?";
@@ -1306,14 +1386,14 @@ int main(int argc, char **argv) {
       norms<<<nblock, nthread, 0, st>>>(g, u[0], u[1], u[2], dP);
       launched("norms");
       collect(6, 0, dP, P, sums);
-      peaks<<<nblock, nthread, 0, st>>>(g, s, cx, cy, cz, (double *)b[0], (double *)b[1],
-                                 (double *)b[2], (double *)b[3], (double *)b[4],
-                                 (double *)b[5], dP);
+      peaks<<<nblock, nthread, 0, st>>>(g, s, cx, cy, cz, (double *)dg[0], (double *)dg[1],
+                                 (double *)dg[2], (double *)dg[3], (double *)dg[4],
+                                 (double *)dg[5], dP);
       launched("peaks");
       collect(2, 1, dP, P, mx);
       cuda(cudaMemsetAsync(dG, 0, sizeof(double), st), "cudaMemsetAsync");
       if (g.k0 == 0 && g.kc > 0)
-        gzsum<<<1, nthread, 0, st>>>(g, (const double *)b[1], dG);
+        gzsum<<<1, nthread, 0, st>>>(g, (const double *)dg[1], dG);
       launched("gzsum");
       devsync();
       cuda(cudaMemcpy(&Gz, dG, sizeof(double), cudaMemcpyDeviceToHost), "cudaMemcpy");
@@ -1366,8 +1446,11 @@ int main(int argc, char **argv) {
       launched("spread");
       synthesis(6, b, ox6, oz6);
     }
-    if (diag && !fuse)
+    if (diag && !fuse) {
+      for (int c = 0; c < 6; c++)
+        dg[c] = b[c];
       diagnose();
+    }
     if (dump && kdump) {
       /* k.STEP: rank's p rows are one contiguous block per component */
       sprintf(path, "k.%08ld.tmp", tstep);
@@ -1672,22 +1755,47 @@ int main(int argc, char **argv) {
         launched("spread");
         synthesis(6, b, ox6, oz6);
       } else {
-        spread5<<<grid(g.nf), nthread, 0, st>>>(g, u[0], u[1], u[2], b[0], b[1], b[2], b[3], b[4]);
-        launched("spread5");
-        if (nl)
-          nl_a(b, s);
-        else
+        if (nl) {
+          if (!headdone)
+            spreadw<<<grid(g.nf), nthread, 0, st>>>(g, u[0], u[1], u[2], B_(OX_), B_(OY_), 0, g.nf);
+          launched("spreadw");
+          nl_a(b, u, s);
+        } else {
+          spread5<<<grid(g.nf), nthread, 0, st>>>(g, u[0], u[1], u[2], b[0], b[1], b[2], b[3], b[4], 0, g.nf);
+          launched("spread5");
           synth5(b);
+        }
       }
       if (r == 0 && fuse) {
+        for (int c = 0; c < 6; c++)
+          dg[c] = nl && !syn6 ? B_(c) : b[c];
         diagnose();
         steph();
       }
       if (nl && !syn6) {
-        nl_b(b, s);
-        update<<<grid(g.nf), nthread, 0, st>>>(g, r == 4, nu, h, A[r], B[r], b[6], b[0], b[1], u[0], u[1], u[2],
-                                               du[0], du[1], du[2]);
-        launched("update");
+        int head = nch > 1 && r < 4; /* chunked boundary to the next stage of this step */
+        headdone = 0;
+        nl_b(b, s, head);
+        if (!head) {
+          update<<<grid(g.nf), nthread, 0, st>>>(g, r == 4, nu, h, A[r], B[r], B_(N0_), B_(U_), B_(V_), u[0], u[1],
+                                                 u[2], du[0], du[1], du[2], 0, g.nf);
+          launched("update");
+          continue;
+        }
+        /* next stage's map: U' receives into the dead W, OX' = old OZ (dead), OY' = old N0 (rows already used) */
+        int nm[7] = {bm[W_], bm[OX_], bm[OY_], bm[OZ_], bm[N0_], bm[U_], bm[V_]};
+        for (int j = 0; j < nch; j++) {
+          long l0 = cha(j) * g.Z1 * g.Q, l1 = chb(j) * g.Z1 * g.Q;
+          azstagec(7, B_(V_), uz[2], j);
+          update<<<grid(l1 - l0), nthread, 0, st>>>(g, 0, nu, h, A[r], B[r], B_(N0_), B_(U_), B_(V_), u[0], u[1],
+                                                    u[2], du[0], du[1], du[2], l0, l1);
+          launched("update");
+          spreadw<<<grid(l1 - l0), nthread, 0, st>>>(g, u[0], u[1], u[2], b[nm[OX_]], b[nm[OY_]], l0, l1);
+          launched("spreadw");
+          zsendc(0, u[0], b[nm[U_]], oz6[0], j);
+        }
+        memcpy(bm, nm, sizeof bm);
+        headdone = 1;
         continue;
       }
       cross<<<grid(g.nr), nthread, 0, st>>>(g, s, (double *)b[0], (double *)b[1], (double *)b[2],
@@ -1695,7 +1803,7 @@ int main(int argc, char **argv) {
       launched("cross");
       analysis(3, b, ux, uz);
       update<<<grid(g.nf), nthread, 0, st>>>(g, r == 4, nu, h, A[r], B[r], b[0], b[1], b[2], u[0],
-                                      u[1], u[2], du[0], du[1], du[2]);
+                                      u[1], u[2], du[0], du[1], du[2], 0, g.nf);
       launched("update");
     }
     lowp = 0;
