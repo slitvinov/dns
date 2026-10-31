@@ -78,3 +78,128 @@ Time step: Omega changes by 5e-5 (C 1.5) and 8e-5 (C 2) against C 1, Gz by 3-4e-
 5-6% in t* 1.5-2.0: without -F the filter is applied once per step, so its strength per unit time follows dt. The dt
 study is being repeated with -F 0.00125 (filter as a rate). Resolution: 384 -> 512 changes Omega by 0.2% and the
 grid max |w| by up to 19% (t* 1.5-2.0): max |w| is the quantity that sets the grid.
+
+4. Validation, Re 9000 (4 H200, one node, -S, C 1, no -F)
+---------------------------------------------------------
+Paper: Omega/Omega0 peak 2.2876 at t* 1.829; |w|inf ratio peak 33.98 at t* 1.838 (fig 23 vector paths).
+  run     Omega/Omega0 peak    |w| ratio peak     Gz/G0 = 0.5 / 0.2     steps to t 5.6 (t* 2.61), s/step (4 H200)
+  1024    2.2707 at 1.8348     37.87 at 1.842     1.8306 / 2.2338       11524, 0.172
+  768     2.2672 at 1.8337     37.33 at 1.837     1.8298 / 2.2287       8584, 0.089
+Against the paper at t* 1.0/1.4/1.5/1.6/1.7/1.8/1.9/2.0/2.2/2.5 (1024):
+  Omega/Omega0  0.9953/1.063/1.151/1.413/1.987/2.188/2.263/2.015/1.476/1.215
+  paper         0.9938/1.061/1.150/1.420/2.004/2.211/2.279/2.022/1.486/1.255
+  |w| ratio     1.113/2.143/4.341/8.49/22.9/21.0/23.7/23.8/13.0/8.49
+  paper         1.113/2.135/4.361/8.61/21.6/19.2/24.1/18.5/13.5/10.7
+Omega peak 0.7% below the paper, peak time +0.006; Omega within 1% to t* 2.2, 3% low at t* 2.5 (768 is lower still,
+so this is on our side of the resolution trend). Gz/G0 on the fig 22a trace (yao9k.png). The |w| ratio follows the
+paper's spiky trace to t* 2.2; its largest spike is 37.9 here and 34.0 there (a single-sample event).
+768 vs 1024: Omega 0.4% (t* 1.5-2), 1.1% after; Gz 0.2%; peak values 0.15% (Omega), 1.4% (|w|).
+
+5. Resolution and time step (Re 5000, 512 unless noted)
+------------------------------------------------------
+Pointwise max differences relative to the reference's max (t* <1.5 / 1.5-2 / >2):
+  384 vs 768       Omega 1e-8 / 2.5e-3 / 3.3e-3     wmax 2e-3 / 0.19 / 0.06     Gz 1e-5 / 2.9e-3 / 1e-3
+  512 vs 768       Omega 7e-10 / 7.2e-4 / 4.4e-4    wmax 1e-3 / 0.085 / 0.02    Gz 3e-7 / 6.2e-4 / 1.7e-4
+  peaks 384/512/768: Omega 1.5395 / 1.5400 / 1.5404, |w| 14.43 / 15.08 / 15.36.
+Time step, against C 0.5 (no -F; filter applied once per step):
+  C 1    Omega 1e-9 / 9.7e-5 / 3.6e-5    wmax 2e-4 / 0.090 / 0.016    Gz 7e-8 / 5.5e-5 / 2.3e-5
+  C 1.5  Omega 5e-9 / 1.5e-4 / 4.8e-5    wmax 3e-4 / 0.096 / 0.015
+  C 2    Omega 2e-8 / 1.8e-4 / 6.1e-5    wmax 8e-4 / 0.095 / 0.016    Gz 1e-7 / 9.7e-5 / 4.1e-5
+With -F 0.00125 (filter as a rate), against C 0.5 -F, to t* 2.1:
+  C 1 -F  Omega 1e-9 / 1.2e-5 / 1.6e-6    wmax 2e-4 / 0.085 / 0.017    Gz 6e-9 / 6.0e-6 / 2e-7
+  C 2 -F  Omega 2e-8 / 4.4e-5 / 5.5e-6    wmax 8e-4 / 0.085 / 0.014    Gz 4e-8 / 2.0e-5 / 5e-7
+  C 0.5 without -F vs with: wmax 0.8%. So -F removes most of the dt dependence of Omega and Gz (1e-4 -> 1e-5), but
+  not that of the grid max |w| in t* 1.5-2 (8.5% even between C 1 and C 0.5): the spikes shift in time.
+Reading: Omega, E and Gz are converged in dt to 1e-4 for any C <= 2 and need ~512 at Re 5000 / ~768-1024 at Re 9000
+for 0.1-0.5%. The grid max |w| during the reconnection spikes (t* 1.6-2.0) moves by 5-10% with C and with the grid:
+it is a pointwise maximum of thin sheets that roll up, sensitive to any perturbation; its peak value is stable to
+~2% (15.08 / 15.21 / 15.34 / 15.26 for C 1 / 1.5 / 2 / 0.5). Use C 1 with -F (dt-independent filter) for reference
+runs; C 2 costs half the steps for the same integral quantities.
+Cost of 384 -> 512 -> 768: the Yao grid ladder (n ~ Re) is consistent with Omega converged to 0.1-0.4%.
+
+6. Spectral checkpoints and padded restart (k.STEP)
+-------------------------------------------------
+-k writes k.STEP (unnormalized double complex [3][nx/2+1][nz/2+1][ny/2+1], one pwrite per rank and component; with
+k.STEP.t = t dt). -r k.STEP restarts exactly (final dump bitwise equal to the continuous run, 128^3); -r k.STEP -G
+n0,n0,n0 zero-pads from a smaller grid (its Nyquist modes dropped) and sets dt anew. seg.sh does this per run dir.
+Check (Re 5000, -S): 512 from t = 0 to t* 1.4, k. dump, padded to 768 and run to t* 2.6, against 768 from t = 0:
+  Omega 1.8e-6, Gz 5.4e-7, E 3.3e-10 (t* 1.5-2); wmax 3% on the spikes. Dump/read: 1.6 / 0.7 s at 512 (2 GB file).
+So the early, smooth phase can run on a coarse grid at no measurable cost in Omega or Gz.
+
+7. Timings, one node (4 H200, seas_gpu holygpu8a16104: AMD 9374F, NVLink NV6, 4x NDR400), cube n^3 quarter box,
+   -I yao, Re 40000 nu, fixed dt 1e-4, 20 steps (two diagnostic steps included), s/step
+------------------------------------------------------------------------------------------------------------------
+"old" = boxsymmp_b2 with BOXSYM_SYN6=1 NOFUSE=1 SELFCOPY=1 NL=0: the old code path (6 + 3 exchanges per stage, own
+diagnostic synthesis, local copy in the exchange; arithmetic bitwise equal to the old binary, which cannot start from
+-I yao). b2 = all changes of section 2; b3 = b2 + z row offsets once per tile row (extz 2.81 -> 2.18 ms, foldz 1.37
+-> 1.05 ms per call at 1024^3 on one H200).
+  n      old      new b2   new b3   -S b2    -S b3    compute only b2 / b3   exchanges only: old (double) / -S
+  1024   0.2027   0.1810   0.1715   0.1672   0.1560   0.1602 / 0.1509        0.0664 / 0.0286
+  1536   0.7809   0.7143   0.6841   0.6693   0.6325   0.6427 / 0.6067        0.2185 / 0.1057
+  2048   1.6201   1.4441   1.3654   1.3303   1.2362   1.2798 / 1.2001        0.5134 / 0.2472
+  old -> -S b3: 1.30x (1024), 1.23x (1536), 1.31x (2048). Rank memory (cudaMemGetInfo after setup): 10.7 / 34.2 /
+  74.7 GB old, 11.2 / 36.0 / 79.0 GB new (+ b[6] for nl).
+Inside a node the step is compute bound (compute alone = 97% of the -S step; the exchanges alone run at ~350-380 GB/s
+per rank over NVLink and are hidden). nl_a/nl_b and the chunked boundaries (BOXSYM_HC=2, 4) change nothing here
+(newSnl0 0.1654 / 0.6648 / 1.3181, hc2 = hc4 = newS within 0.1%): they are for the network-bound case.
+Kernel shares at 1024^3 on one H200 (b3, nsys, 10 steps): z2z FFT 28%, ext/fold 47%, update 6%, C2R/R2C 8%,
+cross0/cross12/spreadw/vortm 8%. The ext/fold kernels run at 60-75% of HBM bandwidth, the FFTs at ~85%.
+
+8. Re 40000: resolution needed
+------------------------------
+Run r40k1024 (1024^3, -S -F 0.000625, C 1, 4 H200, t* 0 -> 3, 15581 steps, 0.154 s/step, 40 min): deliberately
+under-resolved, for the velocity history and kmax eta. Omega/Omega0 peak 9.74 at t* 1.788 (paper 11.81 at 1.882),
+|w| ratio peak 124 (paper 569); |w| already 7% below the paper at t* 1.0 and Omega 7% low at t* 1.4. So 1024 is not
+adequate even before the collision.
+Criterion from our own ladders, with keta = kc eta, kc = (n-1)/3 per direction (the code's column; box-mean eta at the
+enstrophy peak; the Hou-Li filter keeps ~0.45 n, so this kc is conservative for our runs):
+  Re 5000   384  keta_min 2.96: Omega -0.3%, |w| peak -6% (vs 768)
+            512  3.96:            Omega 0.07%, |w| peak -1.8%
+            768  5.94
+  Re 9000   768  4.02:            Omega peak -0.15%, |w| peak -1.4% (vs 1024)
+            1024 5.37
+  Re 40000  1024 1.77 (with its own, too low, enstrophy; with the paper's peak Omega 11.8: 1.69)
+keta ~ 4 gave Omega to ~0.1-0.2% and the |w| peak to ~2% at both Re 5000 and 9000. Scaling keta with n at fixed
+dissipation (Omega/Omega0 = 11.8): keta = 1.69 n / 1024 -> keta 4 needs n = 2420, keta 5 needs 3030.
+Chosen grid: 3072^3 (keta ~5.1 at the peak if the true peak Omega is the paper's; 4.8 if it is 15% higher), 2560^3
+as the minimum (keta 4.2). Yao's 4096 x 2049^2 with 2/3 truncation has keta 6.8 in this measure. Not done (not needed
+for a reference now that the production run is SEM/vm3): the 2048/2560/3072 ladder near the peak that would confirm
+this from the run itself.
+Time step: C 1 with -F (filter rate F ~ 0.00125 * 512 / n, about one full filter per step at the start). C 2 halves
+the steps and moves Omega and Gz by ~4e-5 (Re 5000), but the reconnection-time grid max |w| by ~6-9% pointwise.
+Velocity scale U = max(|u|+|v|+|w|) from r40k1024: 4.8 (t* 0-1), 5.6 (1.3), 7.8 (1.58), 12.5 (1.74), 9-11 (1.8-3.0).
+dt = C / (kc U): at 3072, C 1: 2.0e-4 early, 7e-5 at the peak.
+
+9. Cost projection, Re 40000 to t* 3 (steps from U(t) of r40k1024; scripts yao/proj.py)
+---------------------------------------------------------------------------------------
+Measured on one H200 node (section 7): 1536 0.633, 2048 1.236 s/step (-S, b3). Multi-node s/step below is a MODEL until
+the queued slots report (see 10): compute = one-node compute x (n/2048)^3 (log factor) x 4/P; network = 40 float
+exchanges of X1 Z1 Q x 8 B per step, the off-node share (P-4)/P at ~40 GB/s per GPU (4x NDR400 per node: 50 GB/s
+nominal); s/step ~ the larger of the two plus ~10%.
+  plan                                   grid, GPUs     s/step (model)   steps     wall h   GPU-h
+  3072 from t = 0                        3072, 16       1.5              46700     19.5     311
+  1536 to t* 1.0, padded to 3072         1536 4 / 3072 16  0.63 / 1.5    5360 + 35975   15.9   244
+  same, 2560 after t* 1.0 (minimum)      2560, 16       0.95             30000     8.9      130
+  same, 4096 after t* 1.0 (Yao's grid)   4096, 32       2.1              48000     28.9     900
+  3072 with C 2                          3072, 16       1.5              2680 + 17987   8.0   122
+Memory per rank (b3): 3072 on 8 H200 ~125 GB (fits, tight), on 16 ~63 GB; 4096 needs >= 24 H200 (16 would need ~150
+GB). Checkpoints (k.): 174 GB at 3072, 413 GB at 4096 per dump (netscratch has ~1.2 TB free for the whole lab).
+Caveats: U at 3072 near the peak is probably higher than at 1024 (sharper sheets), i.e. more steps; the multi-node
+s/step is modelled. No spectral production run is planned (Re 40000 production: SEM or vm3); run/prod40k.sh +
+seg.sh (phased, padded, resumable) stay as a reference tool.
+
+10. Timings across nodes
+------------------------
+A100 (seas_gpu, 4 nodes x 4 A100-80GB, ONE 100 Gb/s HDR port per node = ~3 GB/s per GPU off node), 2048^3, 16 ranks,
+s/step (b2):
+  old 13.08   new 11.33   -S 5.79   -S without nl 5.90   -S HC 2 5.74   -S HC 4 5.72   -S + NCCL_NCHANNELS_PER_NET_PEER=4,
+  P2P_NET_CHUNKSIZE=512k 6.43 (worse)   exchanges alone: old 12.43, -S 5.53 (3.9 GB/s per rank)   compute alone 0.73
+  -> network bound: old -> -S 2.26x (45 double -> 40 float exchanges: 2.25x fewer bytes). The overlap is near
+  complete: -S step = exchanges alone + 5% (compute alone is 13%). nl_a/nl_b gives 1.8%, the chunked boundaries
+  another 1.0-1.3%. These nodes are unusable for this code at scale (5.8 s/step at 2048 vs 1.24 on one H200 node).
+H200 2/4/8 nodes (4x NDR400 per node, 16x the A100 nodes' bandwidth per GPU): queued (yspec-b2 8 GPUs 2048 3072,
+yspec-b4 16 GPUs 2048 3072 4096, yspec-b8 32 GPUs 3072 4096; estimated start 15:00 today to 06:30 tomorrow, all with
+--exclude=holygpu8a12204). They run bslot.sh (bmat.sh with b2, bmat3.sh with b3), append to netscratch
+yspec/bench.txt and cancel themselves. The first attempt on 2 nodes landed on holygpu8a12204 (cudaSetDevice busy).
+Model used in section 9 for H200: step = max(compute, exchange) x 1.05-1.1, exchange = off-node bytes / 40 GB/s per
+GPU, as calibrated on the A100 overlap above.
