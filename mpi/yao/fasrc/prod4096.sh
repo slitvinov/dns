@@ -12,7 +12,10 @@ Y=/n/netscratch/koumoutsakos_lab/Everyone/slitvinov/yspec; D=$Y/run/y40k4096
 mkdir -p $D; [ -e $D/start ] || ln -s $(ls $Y/run/l40kbase/k.[0-9]*[0-9] | sort | tail -1) $D/start
 KT=$(awk 'BEGIN{s = ""; for (t = 2.95; t < 4.93; t += 0.15) s = s (s == "" ? "" : ",") t; print s}')
 W=3.2205,3.4352,3.6499,3.7572,3.8646,3.9719,4.0793,4.2939,4.6160,4.9381
+# an older dump is deleted only when the newest one is complete: renamed from .tmp (after fsync), full size, with its .t
 ( while sleep 300; do
+    n=$(ls $D/k.[0-9]*[0-9] 2>/dev/null | while read f; do [ -L $f ] || echo $f; done | sort | tail -1)
+    [ -n "$n" ] && [ -s $n.t ] && [ "$(stat -c %s $n)" = "$((3 * 2049 * 2049 * 2049 * 16))" ] || continue
     ls $D/k.[0-9]*[0-9] 2>/dev/null | while read f; do [ -L $f ] || echo $f; done | sort | head -n -1 | while read f; do rm -f $f $f.t; done
   done ) &
 w=$!
