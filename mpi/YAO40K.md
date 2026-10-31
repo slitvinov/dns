@@ -203,3 +203,17 @@ yspec-b4 16 GPUs 2048 3072 4096, yspec-b8 32 GPUs 3072 4096; estimated start 15:
 yspec/bench.txt and cancel themselves. The first attempt on 2 nodes landed on holygpu8a12204 (cudaSetDevice busy).
 Model used in section 9 for H200: step = max(compute, exchange) x 1.05-1.1, exchange = off-node bytes / 40 GB/s per
 GPU, as calibrated on the A100 overlap above.
+
+11. 2026-10-31 afternoon: option B measured, G1-cause tests
+-----------------------------------------------------------
+2560^3 on one node (4 H200, holygpu8a12201, binary b5 = b4 + BOXSYM_RB, double exchange), 10 steps, s/step and rank-0
+memory (cudaMemGetInfo; the H200 reports ~150 GB):
+  NL=0 RB=2  3.167 s  136.1 GB      NL=0 RB=3  3.174 s  133.3 GB      RB=2  3.179 s  144.5 GB
+  cuFFT 12.9 build (Matching): NL=0 RB=2 3.175 s, 136.1 GB, work 8.4 GB (no saving at 2560)
+  2048 reference: 1.377 s (NL=0 RB=2), 1.380 s, 70.5 / 79.1 GB
+BOXSYM_RB batches are bitwise equal to b4 at 128^3 (np 1 NCCL, np 2 and 4 MPI path, RB 1-3, double); RB refuses -S.
+G1 (Re 20000, 1536, coordinator's comparison with the exact paper path): Omega peak 5.152 at t* 1.885 vs 5.515 (-6.6%),
+|w| peak 139.5 vs 202. Tests from the 1536 k. dump at t* 1.3 (run/r20kbase) to t* 2.0: 2/3-rule mask (nofilt), C 1 with
+-F, C 2 and C 1 with the filter once per step (c1val = the validated Re 5000/9000 flags); G1 2048 as r20k2048p.
+-F: damping rate of mode k per unit time 36 x^36 / F (x = k/kmax per direction), dt-independent; 86,000 x^36 at 1536,
+vs 60,000-95,000 x^36 for the once-per-step filter of the validated Re 9000 1024 run.
