@@ -6,7 +6,7 @@
 # Resumable: rerun in a new 4-node slot. Starts only with yspec/gate.ok.
 Y=/n/netscratch/koumoutsakos_lab/Everyone/slitvinov/yspec; D=$Y/run/y40k3072
 PY=/n/netscratch/koumoutsakos_lab/Everyone/slitvinov/venv/bin/python
-g2k() { awk "NR > 1 {t = \$2} END {exit !(t * 0.4657717 > 2.0)}" $Y/run/r20k2048/out 2> /dev/null; }
+g2k() { test -e $Y/run/r20k2048p/done; }
 until [ -e $Y/run/l40kbase/done ] && [ -e $Y/gate.ok ]; do
   [ -e $Y/gate.fail ] && exit 1
   [ ! -e $Y/gate.ok ] && [ -e $Y/run/r9kpad/done ] && [ -e $Y/run/r9k768noS/done ] && g2k && $PY $Y/src/gate.py > $Y/gate.log 2>&1
