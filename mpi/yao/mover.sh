@@ -1,12 +1,12 @@
 #!/bin/bash
 # mover.sh: moves finished Yao fields off FASRC netscratch. Master copy on this Mac, then a copy on claw for Rendering
 # (claw is temporary), then delete on netscratch, every step checked by size. Polls every 10 min; stops when
-# run/y40k3072/stop.mover exists.
-#  Re 40000 snapshots: rc run/y40k3072/w.STEP_{wabs,wz,lam2}.npy + w.STEP.txt -> ~/dns/bench/ref/yao/re40000/ -> claw
-#     /data/share/render/yao/re40000/   (only snapshots whose 'snapshot w.STEP' line is in err.*: complete)
+# yspec/stop.mover exists.
+#  Re 40000 snapshots: rc run/y40k4096 (and y40k3072) w.STEP_{wabs,wz,lam2}.npy + w.STEP.txt -> ~/dns/bench/ref/yao/re40000/
+#     -> claw /data/share/render/yao/re40000/   (only snapshots whose 'snapshot w.STEP' line is in err.*: complete)
 #  Re 9000 fields: rc run/r9kvid/fields/*.npy (after run/r9kvid/done) -> ~/dns/bench/ref/yao/re9000/ -> claw .../re9000/
 Y=/n/netscratch/koumoutsakos_lab/Everyone/slitvinov/yspec/run; M=~/dns/bench/ref/yao; C=/data/share/render/yao
-mkdir -p $M/re40000 $M/re9000 $M/spec/run
+mkdir -p $M/re40000/y40k4096 $M/re40000/y40k3072 $M/re9000 $M/spec/run
 mv1() { # mv1 rcpath macdir clawdir
   local f=$(basename $1) n m k
   n=$(ssh rc "stat -c %s $1 2>/dev/null"); [ -z "$n" ] && return 1
@@ -17,10 +17,12 @@ mv1() { # mv1 rcpath macdir clawdir
   ssh rc "rm -f $1" && echo "$(date +%T) moved $f ($n B): Mac + claw, deleted on netscratch"
 }
 while :; do
-  ssh rc "test -e $Y/y40k3072/stop.mover" && break
-  for s in $(ssh rc "cd $Y/y40k3072 2>/dev/null && grep -ho 'snapshot w.[0-9]*' err.* | sed 's/snapshot //' | sort -u"); do
-    for f in ${s}_wabs.npy ${s}_wz.npy ${s}_lam2.npy $s.txt; do
-      ssh rc "test -e $Y/y40k3072/$f" && mv1 $Y/y40k3072/$f $M/re40000 $C/re40000
+  ssh rc "test -e $Y/../stop.mover" && break
+  for P in y40k4096 y40k3072; do
+    for s in $(ssh rc "cd $Y/$P 2>/dev/null && grep -ho 'snapshot w.[0-9]*' err.* 2>/dev/null | sed 's/snapshot //' | sort -u"); do
+      for f in ${s}_wabs.npy ${s}_wz.npy ${s}_lam2.npy $s.txt; do
+        ssh rc "test -e $Y/$P/$f" && mv1 $Y/$P/$f $M/re40000/$P $C/re40000/$P
+      done
     done
   done
   if ssh rc "test -e $Y/r9kvid/done"; then
