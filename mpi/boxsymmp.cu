@@ -194,12 +194,18 @@ __global__ static void foldx(long n, long M, const double2 *R, Out *a, Out *self
 template <class In>
 __global__ static void extz(long n, int odd, long Q, long Z1, long pc, long S, const In *a, double2 *R, long pl0) {
   __shared__ double2 t[TL][TL + 1];
+  __shared__ long ro[TL]; /* zrow of the tile's rows: the 64-bit divisions once per row, not per element */
   long q0 = blockIdx.x * (long)TL, m0 = blockIdx.y * (long)TL, pl = pl0 + blockIdx.z, N = n / 2;
   int x = threadIdx.x, y = threadIdx.y;
+  if (y == 0) {
+    long m = m0 + x, h = m <= N ? m : n - m;
+    ro[x] = m < n ? zrow(Z1, S, pc, Q, pl, h) : 0;
+  }
+  __syncthreads();
   for (int j = y; j < TL; j += TR) {
     long m = m0 + j, q = q0 + x, h = m <= N ? m : n - m;
     if (m < n && q < Q) {
-      double2 v = odd && (h == 0 || h == N) ? make_double2(0, 0) : ld2(a, zrow(Z1, S, pc, Q, pl, h) + q);
+      double2 v = odd && (h == 0 || h == N) ? make_double2(0, 0) : ld2(a, ro[j] + q);
       t[j][x] = odd && m > N ? make_double2(-v.x, -v.y) : v;
     }
   }
@@ -214,6 +220,7 @@ template <class Out>
 __global__ static void foldz(long n, long Q, long Z1, long pc, long S, const double2 *R, Out *a, Out *self,
                              long srank, long pl0) {
   __shared__ double2 t[TL][TL + 1];
+  __shared__ long ro[TL];
   long q0 = blockIdx.x * (long)TL, k0 = blockIdx.y * (long)TL, pl = pl0 + blockIdx.z;
   int x = threadIdx.x, y = threadIdx.y;
   for (int j = y; j < TL; j += TR) {
@@ -221,15 +228,20 @@ __global__ static void foldz(long n, long Q, long Z1, long pc, long S, const dou
     if (k < Z1 && q < Q)
       t[j][x] = R[(pl * Q + q) * n + k];
   }
+  if (y == 0) {
+    /* row offsets (64-bit divisions once per row); own section (self) encoded as -1 - offset */
+    long k = k0 + x, sct = ((k + 1) * S - 1) / Z1, r0 = Z1 * sct / S, cnt = Z1 * (sct + 1) / S - r0;
+    ro[x] = self != NULL && sct == srank ? -1 - (pl * cnt + k - r0) * Q : pc * r0 * Q + (pl * cnt + k - r0) * Q;
+  }
   __syncthreads();
   for (int j = y; j < TL; j += TR) {
     long k = k0 + j, q = q0 + x;
     if (k < Z1 && q < Q) {
-      long s = ((k + 1) * S - 1) / Z1, r0 = Z1 * s / S, cnt = Z1 * (s + 1) / S - r0;
-      if (self != NULL && s == srank)
-        st2(self, (pl * cnt + k - r0) * Q + q, t[x][j]);
+      long o = ro[j];
+      if (o < 0)
+        st2(self, -1 - o + q, t[x][j]);
       else
-        st2(a, pc * r0 * Q + (pl * cnt + k - r0) * Q + q, t[x][j]);
+        st2(a, o + q, t[x][j]);
     }
   }
 }
