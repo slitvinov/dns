@@ -9,7 +9,7 @@ E=""; while [ $# -gt 0 ] && [ "$1" != "--" ]; do export "$1"; E="$E -x ${1%%=*}"
 B=${BIN:-$S/boxsymmp}
 D=$R/bench/$TAG.$N.$NP; mkdir -p $D && cd $D || exit 1
 T=$(awk -v k=$K "BEGIN{printf \"%.6g\", k * 1e-4}")
-/usr/bin/time -f "%e s wall" mpirun -np $NP --oversubscribe --bind-to none $E -x NCCL_DEBUG=WARN $B -x $N -y $N -z $N -X 2 -Y 2 -Z 2 \
+/usr/bin/time -f "%e s wall" mpirun -np $NP --oversubscribe --bind-to none $E -x NCCL_NCHANNELS_PER_NET_PEER=4 -x NCCL_MIN_NCHANNELS=16 -x NCCL_DEBUG=WARN $B -x $N -y $N -z $N -X 2 -Y 2 -Z 2 \
   -n 1.920096311e-4 -s 1e-4 -t $T -f -I yao "$@" > out 2> err
 s=$?
 sp=$(grep -h "s/step" err | tail -1 | sed "s/.*: //"); mem=$(grep -h "rank 0/" err | sed "s/.*gpu used //")
