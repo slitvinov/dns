@@ -37,7 +37,7 @@ before=$(cat $Y/badnodes.txt 2>/dev/null | wc -l)
   echo "$(date +%F\ %T) prod4096 chunk check: $sps s/step over $((s1 - s0)) steps (limit 3.45); $(grep -h 'rank 0/' $D/err.* | tail -1 | grep -o 'gpu used [0-9.]* GB')" >> $D/seg.log
   awk -v s=$sps 'BEGIN{exit !(s > 3.45)}' && { echo "$(date +%F\ %T) prod4096: too slow, stopped" >> $D/seg.log; touch $D/stopped; pkill -u $USER -f "[b]oxsymmp_b7 -x 4096"; } ) &
 cw=$!
-EXPSPS=2.3 BIN=$Y/src/boxsymmp_b7 $Y/seg2.sh $D 4096 20 40000 2.0 4.9381 $KT -S -F 0.00015625 -e 0.02 -D 0.004294,3.75720,4.18660 -W $W -w 1.75 -V 4
+EXPSPS=2.3 BIN=$Y/src/boxsymmp_b7 $Y/seg3.sh $D 4096 20 40000 2.0 4.9381 $KT -S -F 0.00015625 -e 0.02 -D 0.004294,3.75720,4.18660 -W $W -w 1.75 -V 4
 s=$?; kill $w $cw 2> /dev/null
 if [ $(cat $Y/badnodes.txt 2>/dev/null | wc -l) -gt $before ]; then
   ex=$( (echo holygpu8a12204; echo holygpu8a12402; tail -1 $Y/badnodes.txt | grep -o "holygpu[0-9a-z]*") | sort -u | tr "\n" "," | sed "s/,$//")
