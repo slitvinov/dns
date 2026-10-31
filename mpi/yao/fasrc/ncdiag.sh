@@ -9,8 +9,5 @@ v() { tag=$1; shift; $R/bench.sh 2048 $NP 1 nd_$tag BOXSYM_A2AONLY=3 NCCL_DEBUG=
       echo "== $tag [$*]: $(grep "nd_$tag n 2048 np $NP" $R/bench.txt | tail -1 | cut -d'|' -f2)" >> $O
       grep -h "NET/\|via\|GDR\|Using network\|NCCL version" $R/bench/nd_$tag.2048.$NP/err $R/bench/nd_$tag.2048.$NP/out 2>/dev/null | sort | uniq -c | sort -rn | head -12 >> $O; }
 v default
-v hca NCCL_IB_HCA=mlx5_2,mlx5_3,mlx5_4,mlx5_5
-v noplugin NCCL_NET_PLUGIN=none NCCL_IB_HCA=mlx5_2,mlx5_3,mlx5_4,mlx5_5
-v gdr NCCL_IB_HCA=mlx5_2,mlx5_3,mlx5_4,mlx5_5 NCCL_NET_GDR_LEVEL=SYS NCCL_IB_QPS_PER_CONNECTION=4
 v mpi BOXSYM_MPI=1
 scancel $SLURM_JOB_ID

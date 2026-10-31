@@ -10,7 +10,7 @@ D=$Y/run/l40k$N; mkdir -p $D && cd $D || exit 1
 ln -sf $k $s; ln -sf $k.t $s.t
 F=$(awk -v n=$N "BEGIN{printf \"%.6g\", 0.00125 * 512 / n}")
 echo "$(date +%F\ %T) lad.sh n $N np $NP from $s F $F host $(hostname) $(scontrol show hostnames $SLURM_JOB_NODELIST 2>/dev/null | tr "\n" " ")" | tee -a lad.log
-mpirun -np $NP --oversubscribe --bind-to none -x NCCL_NCHANNELS_PER_NET_PEER=4 -x NCCL_MIN_NCHANNELS=16 $B -x $N -y $N -z $N -X 2 -Y 2 -Z 2 -n 1.920096311e-4 -s 0.01 -c 2 -F $F -f -S \
+mpirun -np $NP --oversubscribe --bind-to none -x NCCL_NCHANNELS_PER_NET_PEER=8 -x NCCL_MIN_NCHANNELS=32 $B -x $N -y $N -z $N -X 2 -Y 2 -Z 2 -n 1.920096311e-4 -s 0.01 -c 2 -F $F -f -S \
   -e 0.02 -D 0.004294,3.75720,4.18660 -r $s -G 1536,1536,1536 -t 4.1866 > out 2> err &
 p=$!; $Y/src/spscheck.sh out ${EXPSPS:-0} $p &
 wait $p

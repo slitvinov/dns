@@ -23,7 +23,7 @@ else
 fi
 T="-T $T1"; [ "$KT" != "-" ] && T="-T $KT,$T1"
 echo "$(date +%F\ %T) seg.sh: $D n $N np $NP Re $RE nu $NU C $C to t $T1 from [$IN] dumps [$T] [$X] host $(hostname)" | tee -a seg.log
-mpirun -np $NP --oversubscribe --bind-to none -x NCCL_NCHANNELS_PER_NET_PEER=4 -x NCCL_MIN_NCHANNELS=16 $B -x $N -y $N -z $N -X 2 -Y 2 -Z 2 -n $NU -s 0.01 -c $C -f -k -e 0.1 $IN -t $T1 $T $X \
+mpirun -np $NP --oversubscribe --bind-to none -x NCCL_NCHANNELS_PER_NET_PEER=8 -x NCCL_MIN_NCHANNELS=32 $B -x $N -y $N -z $N -X 2 -Y 2 -Z 2 -n $NU -s 0.01 -c $C -f -k -e 0.1 $IN -t $T1 $T $X \
   > out.$step 2> err.$step &
 p=$!; $Y/src/spscheck.sh out.$step ${EXPSPS:-0} $p &
 wait $p; s=$?; echo "$(date +%F\ %T) seg.sh: exit $s; $(grep -h s/step err.$step)" | tee -a seg.log; exit $s

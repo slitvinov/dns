@@ -15,7 +15,7 @@ n=$(ls $P/k.[0-9]*[0-9] | sort | tail -1); awk '{exit !($1 > 4.938)}' $n.t && [ 
 mkdir -p $D && cd $D || exit 1
 s=$(basename $k); ln -sf $k $s; ln -sf $k.t $s.t
 echo "$(date +%F\ %T) w8.sh: 4096 from $s on 32 ranks $(scontrol show hostnames $SLURM_JOB_NODELIST | tr '\n' ' ')" | tee -a w8.log
-mpirun -np 32 --bind-to none -x NCCL_NCHANNELS_PER_NET_PEER=4 -x NCCL_MIN_NCHANNELS=16 $Y/src/boxsymmp_b4 -x 4096 -y 4096 -z 4096 -X 2 -Y 2 -Z 2 -n 1.920096311e-4 -s 0.01 -c 2 \
+mpirun -np 32 --bind-to none -x NCCL_NCHANNELS_PER_NET_PEER=8 -x NCCL_MIN_NCHANNELS=32 $Y/src/boxsymmp_b4 -x 4096 -y 4096 -z 4096 -X 2 -Y 2 -Z 2 -n 1.920096311e-4 -s 0.01 -c 2 \
   -F 0.00015625 -f -S -e 0.02 -D 0.004294,3.75720,4.18660 -W 3.9719 -r $s -G 3072,3072,3072 -t 4.1866 > out 2> err
 echo "$(date +%F\ %T) w8.sh: exit $? $(grep -h s/step err)" | tee -a w8.log
 scancel $SLURM_JOB_ID
