@@ -822,6 +822,55 @@ __global__ static void llam2(long n, Grad G_, float *lam) {
       g_[i][j] = G_.g[i][j][l];
   lam[l] = (float)lam2of(g_);
 }
+/* -V: |w| and lambda2 / ls for all planes from six gradient components in float (g6: d_j u_0, d_j u_1) and three in
+   double physical slabs (d_j u_2, rows 2Q); writes the crop halves (planes i < ni, order [k][i][j]) and full float fields */
+struct Grad6 {
+  const float *g[6];
+  const double *h[3];
+};
+__global__ static void wsnap2(long X1, long kc, long ny, long Q, long ni, Grad6 G_, double ls, __half *wa, __half *wz,
+                              __half *l2, float *fa, float *fl) {
+  long l = blockIdx.x * (long)blockDim.x + threadIdx.x;
+  if (l >= X1 * kc * ny)
+    return;
+  long j = l % ny, k = l / ny % kc, i = l / ny / kc, r = (l / ny) * 2 * Q + j;
+  double g_[3][3];
+  for (int a = 0; a < 6; a++)
+    g_[a / 3][a % 3] = G_.g[a][l];
+  for (int b = 0; b < 3; b++)
+    g_[2][b] = G_.h[b][r];
+  double ox = g_[2][1] - g_[1][2], oy = g_[0][2] - g_[2][0], oz = g_[1][0] - g_[0][1];
+  double wn = sqrt(ox * ox + oy * oy + oz * oz), lm = lam2of(g_) / ls;
+  fa[l] = (float)wn;
+  fl[l] = (float)lm;
+  if (i < ni) {
+    long o = (k * ni + i) * ny + j;
+    wa[o] = __double2half(wn);
+    wz[o] = __double2half(oz);
+    l2[o] = __double2half(lm);
+  }
+}
+/* -V D: block mean over D x D in (x, y) of a full float field [i][kloc][j]: coarse node I (x = I D dx, 0 <= I <= (X1-1)/D)
+   and J (y = -pi + J D dy) average the fine points within D/2 with weights 1/2 at the two ends (mirror in x at 0 and pi:
+   |w| and lambda2 are even there; periodic in y); output half [kloc][I][J] */
+__global__ static void wdown(long X1, long kc, long ny, long D, const float *f, __half *o) {
+  long Xc = (X1 - 1) / D + 1, Yc = ny / D, l = blockIdx.x * (long)blockDim.x + threadIdx.x;
+  if (l >= kc * Xc * Yc)
+    return;
+  long J = l % Yc, I = l / Yc % Xc, k = l / Yc / Xc, h = D / 2, n2 = 2 * (X1 - 1);
+  double s = 0;
+  for (long a = -h; a <= h; a++) {
+    long i = I * D + a;
+    i = i < 0 ? -i : i > X1 - 1 ? n2 - i : i;
+    double wa = a == -h || a == h ? 0.5 : 1;
+    for (long b = -h; b <= h; b++) {
+      long j = ((J * D + b) % ny + ny) % ny;
+      double wb = b == -h || b == h ? 0.5 : 1;
+      s += wa * wb * f[(i * kc + k) * ny + j];
+    }
+  }
+  o[l] = __float2half((float)(s / (D * D)));
+}
 /* -W snapshot: |w|, w_z, lambda2 / ls as half from the gradient planes i < ni of the slab ([i][kloc][j]), written
    in the order [kloc][i][j] (z, x, y) */
 __global__ static void wsnap(long ni, long kc, long ny, Grad G_, double ls, __half *wa, __half *wz, __half *l2) {
@@ -966,6 +1015,7 @@ int main(int argc, char **argv) {
   int yao = 0, sflag = 0, kdump = 0; /* -I yao, -S, -k */
   long fg[3] = {0, 0, 0}; /* -G: grid of a k. restart file */
   double Wt[64], HW = 1.5, dD = 0, dA = 0, dB = 0; /* -W snapshot times, -w half width in x, -D interval,from,to */
+  long VD = 0; /* -V: with -W also the whole quarter block-averaged by VD in x, y (z by the reader) */
   int nW = 0;
   double cfl = 0, dtmax, h, Gz = 0; /* -c */
   int dtknown = 0;
@@ -1149,6 +1199,9 @@ int main(int argc, char **argv) {
       break;
     case 'w':
       HW = x;
+      break;
+    case 'V':
+      VD = x;
       break;
     default:
       fail("unknown option '%s'%s", *argv, "");
@@ -1708,8 +1761,8 @@ int main(int argc, char **argv) {
       __half *wh;
       /* the gradient planes live in du (dead at the start of a step: the first RK stage has A = 0; zeroed again
          below) and the half output in R (free after the syntheses) when they fit, else in their own memory */
-      int own = 3 * (size_t)nl * sizeof(float) > (size_t)g.nf * sizeof(double2) ||
-                3 * (size_t)nl * sizeof(__half) > (size_t)nR * sizeof(double2);
+      int own = VD == 0 && (3 * (size_t)nl * sizeof(float) > (size_t)g.nf * sizeof(double2) ||
+                            3 * (size_t)nl * sizeof(__half) > (size_t)nR * sizeof(double2));
       for (int i = 0; i < 3; i++)
         for (int j = 0; j < 3; j++) {
           if (own)
@@ -1721,6 +1774,19 @@ int main(int argc, char **argv) {
         cuda(cudaMalloc(&wh, 3 * (nl > 0 ? nl : 1) * sizeof(__half)), "cudaMalloc");
       else
         wh = (__half *)R;
+      long nfull = g.X1 * g.kc * ny, Xc = VD > 0 ? (g.X1 - 1) / VD + 1 : 0, Yc = VD > 0 ? ny / VD : 0, nd = g.kc * Xc * Yc;
+      __half *wd = NULL;
+      if (VD > 0) {
+        /* six gradient components in float, two per du[c] (2 nfull <= 4 nf floats), the last three stay double in b0..b2;
+           crop halves and the coarse output in b3, full float |w| and lambda2 in b4, b5 */
+        if (2 * (size_t)nfull * sizeof(float) > (size_t)g.nf * sizeof(double2) || (size_t)nfull * sizeof(float) > (size_t)nb * sizeof(double2) ||
+            (3 * (size_t)nl + 2 * (size_t)nd) * sizeof(__half) > (size_t)nb * sizeof(double2) || nx % (2 * VD) || ny % VD)
+          fail("-V: does not fit or does not divide the grid%s%s", "", "");
+        for (int a = 0; a < 6; a++)
+          LG[a / 3][a % 3] = (float *)du[a / 2] + (size_t)(a % 2) * nfull;
+        wh = (__half *)b[3];
+        wd = wh + 3 * nl;
+      }
       for (int hh = 0; hh < 2; hh++) {
         int m = hh == 0 ? 6 : 3, ox9[6], oz9[6];
         for (int q = 0; q < m; q++) {
@@ -1731,17 +1797,31 @@ int main(int argc, char **argv) {
           oz9[q] = uz[i] ^ (j == 2);
         }
         synthesis(m, b, ox9, oz9);
-        for (int q = 0; q < m && nl > 0; q++) {
+        for (int q = 0; q < m && nl > 0 && !(VD > 0 && hh == 1); q++) {
           int ij = 6 * hh + q;
-          ltofloat<<<grid(nl), nthread, 0, st>>>(ni * g.kc, ny, g.Q, (double *)b[q], LG[ij / 3][ij % 3]);
+          long np_ = VD > 0 ? nfull : nl;
+          ltofloat<<<grid(np_), nthread, 0, st>>>(np_ / ny, ny, g.Q, (double *)b[q], LG[ij / 3][ij % 3]);
           launched("ltofloat");
         }
+      }
+      if (VD > 0) {
+        Grad6 g6;
+        for (int a = 0; a < 6; a++)
+          g6.g[a] = LG[a / 3][a % 3];
+        for (int c = 0; c < 3; c++)
+          g6.h[c] = (const double *)b[c];
+        wsnap2<<<grid(nfull), nthread, 0, st>>>(g.X1, g.kc, ny, g.Q, ni, g6, ls_, wh, wh + nl, wh + 2 * nl, (float *)b[4],
+                                                (float *)b[5]);
+        launched("wsnap2");
+        wdown<<<grid(nd), nthread, 0, st>>>(g.X1, g.kc, ny, VD, (const float *)b[4], wd);
+        wdown<<<grid(nd), nthread, 0, st>>>(g.X1, g.kc, ny, VD, (const float *)b[5], wd + nd);
+        launched("wdown");
       }
       Grad gg;
       for (int i = 0; i < 3; i++)
         for (int j = 0; j < 3; j++)
           gg.g[i][j] = LG[i][j];
-      if (nl > 0)
+      if (nl > 0 && VD == 0)
         wsnap<<<grid(nl), nthread, 0, st>>>(ni, g.kc, ny, gg, ls_, wh, wh + nl, wh + 2 * nl);
       launched("wsnap");
       devsync();
@@ -1768,6 +1848,29 @@ int main(int argc, char **argv) {
         if (any(bad))
           fail("fail to write '%s'%s", wp, "");
       }
+      if (VD > 0) {
+        __half *hd_ = (__half *)malloc(2 * (nd > 0 ? nd : 1) * sizeof(__half));
+        if (hd_ == NULL)
+          fail("malloc failed%s%s", "", "");
+        cuda(cudaMemcpy(hd_, wd, 2 * nd * sizeof(__half), cudaMemcpyDeviceToHost), "cudaMemcpy");
+        const char *dn_[2] = {"wabs", "lam2"};
+        snprintf(shp, sizeof shp, "(%ld, %ld, %ld)", g.Z1, Xc, Yc);
+        int hn2 = npyhead(hd, "<f2", shp);
+        for (int q = 0; q < 2; q++) {
+          sprintf(wp, "d.%08ld_%s.npy", tstep, dn_[q]);
+          if (rank == 0 && ((fd = open(wp, O_WRONLY | O_CREAT | O_TRUNC, 0644)) < 0 ||
+                            ftruncate(fd, (off_t)(hn2 + 2 * g.Z1 * Xc * Yc)) != 0 || rw(1, fd, hd, hn2, 0) != 0 || close(fd) != 0))
+            bad = 1;
+          if (any(bad))
+            fail("fail to write '%s'%s", wp, "");
+          if ((fd = open(wp, O_WRONLY)) < 0 ||
+              (nd > 0 && rw(1, fd, hd_ + q * nd, 2 * nd, (off_t)(hn2 + 2 * g.k0 * Xc * Yc)) != 0) || close(fd) != 0)
+            bad = 1;
+          if (any(bad))
+            fail("fail to write '%s'%s", wp, "");
+        }
+        free(hd_);
+      }
       if (rank == 0) {
         FILE *fr;
         sprintf(wp, "w.%08ld.txt", tstep);
@@ -1784,6 +1887,11 @@ int main(int argc, char **argv) {
                       "grid %ld^3 (2 pi periodic), Re = Gamma0 / nu = %.6g\n",
                   tstep, t, t * 7.680385244 / (2 * pi * 1.62 * 1.62), tstep, g.Z1, ni, ny, Z * pi / nz, ni - 1,
                   (ni - 1) * dx_, dx_, Y * pi / ny, ls_, nx, 7.680385244 / nu);
+          if (VD > 0)
+            fprintf(fr, "also d.%08ld_{wabs,lam2}.npy: the whole quarter, float16, shape (%ld, %ld, %ld), order [k][I][J]: k as above (all\n"
+                        "  z planes), x = I %ld dx, y = -pi + J %ld dy; block mean over %ld x %ld fine points in (x, y) centred on the node,\n"
+                        "  weights 1/2 at the two ends, mirrored at x = 0 and pi; average k the same way to get the 3D block mean\n",
+                    tstep, g.Z1, (g.X1 - 1) / VD + 1, ny / VD, VD, VD, VD, VD);
           fclose(fr);
         }
         fprintf(stderr, "boxsymmp: snapshot w.%08ld (%ld x %ld x %ld, 3 x %.2f GB) in %.1f s\n", tstep, g.Z1, ni, ny,
