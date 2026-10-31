@@ -17,6 +17,10 @@ mkdir -p $D
 KT=$(awk "BEGIN{s=\"\"; for (t = 3.0; t < 4.93; t += 0.25) s = s (s == \"\" ? \"\" : \",\") t; print s}")
 W=3.2205,3.4352,3.6499,3.7572,3.8646,3.9719,4.0793,4.2939,4.6160,4.9381
 ( while sleep 300; do
+    te=$(awk "NR > 1 {t = \$2} END {print t * 0.4657717}" $(ls $D/out.* 2>/dev/null | sort | tail -1) 2> /dev/null)
+    [ ! -e $Y/w4096.go ] && [ ! -e $Y/w4096.no ] && awk -v t=${te:-0} "BEGIN{exit !(t >= 1.95)}" && \
+      grep -q exit $Y/run/l40k1536/lad.log $Y/run/l40k2048/lad.log $Y/run/l40k2560/lad.log 2> /dev/null && \
+      $PY $Y/src/gate4096.py > $Y/gate4096.log 2>&1
     ls $D/k.[0-9]*[0-9] 2>/dev/null | while read f; do [ -L $f ] && continue; \
       awk -v t=$(cut -d" " -f1 $f.t) "BEGIN{exit !(t > 3.749 && t < 3.751)}" || echo $f; done | sort | head -n -1 | \
       while read f; do rm -f $f $f.t; done
