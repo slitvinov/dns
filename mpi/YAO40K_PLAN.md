@@ -3,7 +3,19 @@ YAO40K_PLAN: Yao & Hussain 2020a (JFM 883 A51) at Re 40000 -- run plan (nothing 
 Spectral agent, 2026-10-31. Option A: spectral boxsymmp (this agent). Option B: vm3 (vm3-yao agent, section B, merged from
 ~/dns/vm/YAO40K_VM3.md). (m) = measured, (e) = estimate or model. Details behind every number: ~/dns/mpi/YAO40K.md.
 
-HEADLINE
+STATUS 2026-10-31 15:30 EDT (supersedes the headline numbers below where they differ)
+  - Fine phase on HOLD (yspec/hold): gate.py writes gate.held until the G1 2048 result is reviewed.
+  - G1 Re 20000 at 1536 (keta 5.7 -> 4.4 near the peak): Omega peak 5.152 at t* 1.885 vs paper 5.515 (-6.6%), |w| peak
+    139.5 vs 202 (coordinator's check against the exact paths). The keta ~4 rule from Re 5000/9000 does not carry to
+    Re 20000; 2048 (= Yao's grid there) runs as r20k2048p (slot yspec-g4). Re 40000 grid (3072 or 4096) waits for it.
+  - Multi-node H200 is slow as configured (Matching, match-2, b3): 2048/8 ranks 7.56 s/step vs 1.24-1.37 on one node;
+    3072/8 25.8 s/step. NCCL transport under diagnosis (Matching ncdiag; my yspec-l4/q2 run ncdiag.sh only). No multi-node
+    phase until it is fixed; all costs below that use a 16-H200 s/step are models and are void until re-measured.
+  - 4096 memory (Matching): ~158 GB/rank at 16 ranks; 20 H200 (~125 GB) with no code change, or 16 with cuFFT 12.9 +
+    BOXSYM_NL=0 + a 3-deep float ring.
+  - R1/R2 (Re 9000 gates) and the Re 9000 video fields, Re 5000 at 1024: on gh (GH200), running.
+
+HEADLINE (as planned before the G1 and multi-node findings)
   Recommendation: A, spectral boxsymmp on a 3072^3-equivalent grid (quarter box 1537 x 3072 x 1537), 16 H200 (4 nodes).
   Cost A (to t* 3, C 2): ~21k steps; ~8 h wall on 16 H200 (10 h with +30% steps); ~125-160 H200-h (e: the 16-H200
   s/step ~1.5 is a model; one-node speeds are measured; the multi-node H200 timing is still queued). Go/no-go first:
