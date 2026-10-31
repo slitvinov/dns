@@ -1706,10 +1706,21 @@ int main(int argc, char **argv) {
       long nl = ni * g.kc * ny;
       float *LG[3][3];
       __half *wh;
+      /* the gradient planes live in du (dead at the start of a step: the first RK stage has A = 0; zeroed again
+         below) and the half output in R (free after the syntheses) when they fit, else in their own memory */
+      int own = 3 * (size_t)nl * sizeof(float) > (size_t)g.nf * sizeof(double2) ||
+                3 * (size_t)nl * sizeof(__half) > (size_t)nR * sizeof(double2);
       for (int i = 0; i < 3; i++)
-        for (int j = 0; j < 3; j++)
-          cuda(cudaMalloc(&LG[i][j], (nl > 0 ? nl : 1) * sizeof(float)), "cudaMalloc");
-      cuda(cudaMalloc(&wh, 3 * (nl > 0 ? nl : 1) * sizeof(__half)), "cudaMalloc");
+        for (int j = 0; j < 3; j++) {
+          if (own)
+            cuda(cudaMalloc(&LG[i][j], (nl > 0 ? nl : 1) * sizeof(float)), "cudaMalloc");
+          else
+            LG[i][j] = (float *)du[i] + (size_t)j * nl; /* three gradient planes per du[i] */
+        }
+      if (own)
+        cuda(cudaMalloc(&wh, 3 * (nl > 0 ? nl : 1) * sizeof(__half)), "cudaMalloc");
+      else
+        wh = (__half *)R;
       for (int hh = 0; hh < 2; hh++) {
         int m = hh == 0 ? 6 : 3, ox9[6], oz9[6];
         for (int q = 0; q < m; q++) {
@@ -1779,10 +1790,14 @@ int main(int argc, char **argv) {
                 2e-9 * g.Z1 * ni * ny, MPI_Wtime() - ts_);
       }
       free(hh_);
-      for (int i = 0; i < 3; i++)
-        for (int j = 0; j < 3; j++)
-          cuda(cudaFree(LG[i][j]), "cudaFree");
-      cuda(cudaFree(wh), "cudaFree");
+      if (own) {
+        for (int i = 0; i < 3; i++)
+          for (int j = 0; j < 3; j++)
+            cuda(cudaFree(LG[i][j]), "cudaFree");
+        cuda(cudaFree(wh), "cudaFree");
+      }
+      for (int c = 0; c < 3; c++)
+        cuda(cudaMemsetAsync(du[c], 0, g.nf * sizeof(double2), st), "cudaMemsetAsync");
     }
     if (lam && (rpath == NULL || tstep != start || L0start)) {
       /* pair centre from the omega_z^2 profiles of the full box (omega_z = d_x v - d_y u synthesized on the
