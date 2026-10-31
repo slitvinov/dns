@@ -7,20 +7,24 @@
 #  Re 9000 fields: rc run/r9kvid/fields/*.npy (after run/r9kvid/done) -> ~/dns/bench/ref/yao/re9000/ -> claw .../re9000/
 Y=/n/netscratch/koumoutsakos_lab/Everyone/slitvinov/yspec/run; M=~/dns/bench/ref/yao; C=/data/share/render/yao
 mkdir -p $M/re40000/y40k4096 $M/re40000/y40k3072 $M/re9000 $M/spec/run
-mv1() { # mv1 rcpath macdir clawdir
+mv1() { # mv1 rcpath macdir clawdir: rc -> Mac (master, size checked) -> delete on rc -> claw (size checked)
   local f=$(basename $1) n m k
   n=$(ssh rc "stat -c %s $1 2>/dev/null"); [ -z "$n" ] && return 1
-  rsync -a --partial rc:$1 $2/ || return 1
+  mkdir -p $2; rsync -a --partial rc:$1 $2/ || return 1
   m=$(stat -f %z $2/$f); [ "$m" = "$n" ] || return 1
-  ssh claw "sudo mkdir -p $3" && rsync -a --partial --rsync-path="sudo rsync" $2/$f claw:$3/ || return 1
-  k=$(ssh claw "sudo stat -c %s $3/$f"); [ "$k" = "$n" ] || return 1
-  ssh rc "rm -f $1" && echo "$(date +%T) moved $f ($n B): Mac + claw, deleted on netscratch"
+  ssh rc "rm -f $1" && echo "$(date +%T) moved $f ($n B) to the Mac, deleted on netscratch"
+  case $f in d.*_wabs.npy|d.*_lam2.npy) python3 ~/dns-yspec/mpi/yao/davg.py $2/$f $2/${f%.npy}_q.npy && echo "$(date +%T) quarter mean ${f%.npy}_q.npy" ;; esac
+  ssh claw "sudo mkdir -p $3" && rsync -a --partial --rsync-path="sudo rsync" $2/$f claw:$3/ || return 0
+  [ -e $2/${f%.npy}_q.npy ] && rsync -a --rsync-path="sudo rsync" $2/${f%.npy}_q.npy claw:$3/
+  k=$(ssh claw "sudo stat -c %s $3/$f"); [ "$k" = "$n" ] && echo "$(date +%T) $f also on claw"
+  return 0
 }
 while :; do
   ssh rc "test -e $Y/../stop.mover" && break
   for P in y40k4096 y40k3072; do
     for s in $(ssh rc "cd $Y/$P 2>/dev/null && grep -ho 'snapshot w.[0-9]*' err.* 2>/dev/null | sed 's/snapshot //' | sort -u"); do
-      for f in ${s}_wabs.npy ${s}_wz.npy ${s}_lam2.npy $s.txt; do
+      d=$(echo $s | sed 's/^w\./d./')
+      for f in ${s}_wabs.npy ${s}_wz.npy ${s}_lam2.npy $s.txt ${d}_wabs.npy ${d}_lam2.npy; do
         ssh rc "test -e $Y/$P/$f" && mv1 $Y/$P/$f $M/re40000/$P $C/re40000/$P
       done
     done
