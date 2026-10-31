@@ -11,6 +11,6 @@ s1=$(st); t1=$(date +%s); ds=$((s1 - s0))
 sps=$(awk -v d=$ds -v t=$((t1 - t0)) "BEGIN{printf \"%.3f\", d > 0 ? t / d : 1e9}")
 echo "$(date +%F\ %T) spscheck $O: $sps s/step over $ds steps (expected $E)" >> $Y/spscheck.log
 if awk -v s=$sps -v e=$E "BEGIN{exit !(s > 3 * e)}"; then
-  echo "$(date +%F\ %T) job $SLURM_JOB_ID nodes $(scontrol show hostnames $SLURM_JOB_NODELIST | tr "\n" " ") $sps s/step vs expected $E: killed" >> $Y/badnodes.txt
+  echo "$(date +%F\ %T) job $SLURM_JOB_ID nodes $(scontrol show hostnames $SLURM_JOB_NODELIST | tr "\n" " ") $sps s/step vs expected $E: killed" >> ${SPSLOG:-$Y/badnodes.txt}
   kill $P; exit 1
 fi
