@@ -7,7 +7,11 @@
    all-to-all per 3-D transform between the x- and z-stages. y is R2C/C2R, x and z are full-length
    complex FFTs of parity-extended lines (as in boxsym, tiled transposes). The all-to-all is NCCL grouped
    send/recv on its own stream, pipelined against the compute of the neighbouring fields (MPI only
-   bootstraps NCCL and reduces the diagnostics). */
+   bootstraps NCCL and reduces the diagnostics).
+   yao-spec additions: -I yao (Yao & Hussain 2020a tube pair generated on the GPU, no IC file), Gz column
+   (circulation of omega_z through z = 0, x < 0, by Stokes from v on x = 0 and x = -pi), -c C (adaptive
+   time step: dt = C / Courant rate at every diagnostic step, -s is the largest dt; -d -e -L -T are then times
+   and q.STEP.t holds t), -S (all-to-all in float: x-, z-stage results rounded to fp32 before the exchange). */
 #include <cufft.h>
 #include <fcntl.h>
 #include <math.h>
@@ -47,7 +51,11 @@ static double2 *R, *T[2];
 static int *scz, *sdz, *rcz, *rdz; /* alltoallv: z-slab sections <-> x-slab chunks */
 static ncclComm_t nccl;
 static int usempi; /* BOXSYM_MPI=1: CUDA-aware MPI_Alltoallv instead of NCCL (e.g. several ranks per GPU) */
-static MPI_Datatype cplx;
+static MPI_Datatype cplx, cplxf;
+static int lowp; /* -S: the all-to-all buffers hold float2 (set only around the RK stages) */
+static int syn6; /* BOXSYM_SYN6=1: RK stages synthesize u and omega by six exchanges (the old path) */
+static int nocomm; /* BOXSYM_NOCOMM=1 (timing only): the exchanges are skipped, results are garbage */
+static int nofuse; /* BOXSYM_NOFUSE=1: diagnostics from a synthesis of their own (the old way) */
 static cudaStream_t st, sc; /* compute, all-to-all */
 static cudaEvent_t ev[4][8];   /* pipeline events: [kind][field] */
 static void fail(const char *fmt, const char *a, const char *b) {
@@ -75,15 +83,21 @@ static void nccheck(ncclResult_t r, const char *what) {
 }
 static void devsync(void) { cuda(cudaStreamSynchronize(st), "cudaStreamSynchronize"); }
 /* all-to-all of complex chunks: to rank q send sc[q] at sd[q], receive rc[q] at rd[q] */
-static void a2a(const double2 *sb, const int *nsend, const int *sd, double2 *rb, const int *rc,
+static void a2a(const void *sb_, const int *nsend, const int *sd, void *rb_, const int *rc,
                 const int *rd) {
+  size_t es = lowp ? sizeof(float2) : sizeof(double2);
+  const char *sb = (const char *)sb_;
+  char *rb = (char *)rb_;
+  ncclDataType_t ty = lowp ? ncclFloat : ncclDouble;
   if (usempi) {
     devsync();
-    MPI_Alltoallv(sb, nsend, sd, cplx, rb, rc, rd, cplx, MPI_COMM_WORLD);
+    MPI_Alltoallv(sb, nsend, sd, lowp ? cplxf : cplx, rb, rc, rd, lowp ? cplxf : cplx, MPI_COMM_WORLD);
     return;
   }
+  if (nocomm)
+    return;
   if (rc[rank] > 0)
-    cuda(cudaMemcpyAsync(rb + rd[rank], sb + sd[rank], rc[rank] * sizeof(double2),
+    cuda(cudaMemcpyAsync(rb + rd[rank] * es, sb + sd[rank] * es, rc[rank] * es,
                          cudaMemcpyDeviceToDevice, sc),
          "cudaMemcpyAsync");
   nccheck(ncclGroupStart(), "ncclGroupStart");
@@ -91,9 +105,9 @@ static void a2a(const double2 *sb, const int *nsend, const int *sd, double2 *rb,
     if (q == rank)
       continue;
     if (nsend[q] > 0)
-      nccheck(ncclSend(sb + sd[q], 2 * (size_t)nsend[q], ncclDouble, q, nccl, sc), "ncclSend");
+      nccheck(ncclSend(sb + sd[q] * es, 2 * (size_t)nsend[q], ty, q, nccl, sc), "ncclSend");
     if (rc[q] > 0)
-      nccheck(ncclRecv(rb + rd[q], 2 * (size_t)rc[q], ncclDouble, q, nccl, sc), "ncclRecv");
+      nccheck(ncclRecv(rb + rd[q] * es, 2 * (size_t)rc[q], ty, q, nccl, sc), "ncclRecv");
   }
   nccheck(ncclGroupEnd(), "ncclGroupEnd");
 }
@@ -127,14 +141,21 @@ __device__ static long zrow(long Z1, long S, long pc, long Q, long pl, long h) {
   long s = ((h + 1) * S - 1) / Z1, r0 = Z1 * s / S, cnt = Z1 * (s + 1) / S - r0;
   return pc * r0 * Q + (pl * cnt + h - r0) * Q;
 }
-__global__ static void extx(long n, int odd, long M, const double2 *a, double2 *R) {
+__device__ static double2 ld2(const double2 *a, long i) { return a[i]; }
+__device__ static double2 ld2(const float2 *a, long i) {
+  float2 v = a[i];
+  return make_double2(v.x, v.y);
+}
+__device__ static void st2(double2 *a, long i, double2 v) { a[i] = v; }
+__device__ static void st2(float2 *a, long i, double2 v) { a[i] = make_float2((float)v.x, (float)v.y); }
+template <class In> __global__ static void extx(long n, int odd, long M, const In *a, double2 *R) {
   __shared__ double2 t[TL][TL + 1];
   long b0 = blockIdx.x * (long)TL, m0 = blockIdx.y * (long)TL, N = n / 2;
   int x = threadIdx.x, y = threadIdx.y;
   for (int j = y; j < TL; j += TR) {
     long m = m0 + j, b = b0 + x, h = m <= N ? m : n - m;
     if (m < n && b < M) {
-      double2 v = odd && (h == 0 || h == N) ? make_double2(0, 0) : a[h * M + b];
+      double2 v = odd && (h == 0 || h == N) ? make_double2(0, 0) : ld2(a, h * M + b);
       t[j][x] = odd && m > N ? make_double2(-v.x, -v.y) : v;
     }
   }
@@ -145,7 +166,7 @@ __global__ static void extx(long n, int odd, long M, const double2 *a, double2 *
       R[b * n + m] = t[x][j];
   }
 }
-__global__ static void foldx(long n, long M, const double2 *R, double2 *a) {
+template <class Out> __global__ static void foldx(long n, long M, const double2 *R, Out *a) {
   __shared__ double2 t[TL][TL + 1];
   long b0 = blockIdx.x * (long)TL, p0 = blockIdx.y * (long)TL, N1 = n / 2 + 1;
   int x = threadIdx.x, y = threadIdx.y;
@@ -158,18 +179,18 @@ __global__ static void foldx(long n, long M, const double2 *R, double2 *a) {
   for (int j = y; j < TL; j += TR) {
     long p = p0 + j, b = b0 + x;
     if (p < N1 && b < M)
-      a[p * M + b] = t[x][j];
+      st2(a, p * M + b, t[x][j]);
   }
 }
-__global__ static void extz(long n, int odd, long Q, long Z1, long pc, long S, const double2 *a,
-                            double2 *R) {
+template <class In>
+__global__ static void extz(long n, int odd, long Q, long Z1, long pc, long S, const In *a, double2 *R) {
   __shared__ double2 t[TL][TL + 1];
   long q0 = blockIdx.x * (long)TL, m0 = blockIdx.y * (long)TL, pl = blockIdx.z, N = n / 2;
   int x = threadIdx.x, y = threadIdx.y;
   for (int j = y; j < TL; j += TR) {
     long m = m0 + j, q = q0 + x, h = m <= N ? m : n - m;
     if (m < n && q < Q) {
-      double2 v = odd && (h == 0 || h == N) ? make_double2(0, 0) : a[zrow(Z1, S, pc, Q, pl, h) + q];
+      double2 v = odd && (h == 0 || h == N) ? make_double2(0, 0) : ld2(a, zrow(Z1, S, pc, Q, pl, h) + q);
       t[j][x] = odd && m > N ? make_double2(-v.x, -v.y) : v;
     }
   }
@@ -180,8 +201,8 @@ __global__ static void extz(long n, int odd, long Q, long Z1, long pc, long S, c
       R[(pl * Q + q) * n + m] = t[x][j];
   }
 }
-__global__ static void foldz(long n, long Q, long Z1, long pc, long S, const double2 *R,
-                             double2 *a) {
+template <class Out>
+__global__ static void foldz(long n, long Q, long Z1, long pc, long S, const double2 *R, Out *a) {
   __shared__ double2 t[TL][TL + 1];
   long q0 = blockIdx.x * (long)TL, k0 = blockIdx.y * (long)TL, pl = blockIdx.z;
   int x = threadIdx.x, y = threadIdx.y;
@@ -194,7 +215,7 @@ __global__ static void foldz(long n, long Q, long Z1, long pc, long S, const dou
   for (int j = y; j < TL; j += TR) {
     long k = k0 + j, q = q0 + x;
     if (k < Z1 && q < Q)
-      a[zrow(Z1, S, pc, Q, pl, k) + q] = t[x][j];
+      st2(a, zrow(Z1, S, pc, Q, pl, k) + q, t[x][j]);
   }
 }
 static dim3 tiles(long a, long b, long c) { return dim3((a + TL - 1) / TL, (b + TL - 1) / TL, c); }
@@ -202,45 +223,108 @@ static void rec(int k, int c, cudaStream_t s) { cuda(cudaEventRecord(ev[k][c], s
 static void waitev(cudaStream_t s, int k, int c) {
   cuda(cudaStreamWaitEvent(s, ev[k][c], 0), "cudaStreamWaitEvent");
 }
+/* z-stage of field a (z parity oz) and its all-to-all; s = sequence number of the exchange in this synthesis
+   (events [k][s], send buffer T[s % 2]). Events: 0 compute side done with T[s % 2], 1 all-to-all s done. */
+static void zsend(int s, double2 *a, int oz) {
+  extz<<<tiles(g.Q, g.nz, g.pc), dim3(TL, TR), 0, st>>>(g.nz, oz, g.Q, g.Z1, g.pc, 1, (const double2 *)a, R);
+  launched("extz");
+  cufft(cufftExecZ2Z(pz, R, R, CUFFT_INVERSE), "cufftExecZ2Z");
+  if (s >= 2)
+    waitev(st, 1, s - 2);
+  if (lowp)
+    foldz<<<tiles(g.Q, g.Z1, g.pc), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, size, R, (float2 *)T[s % 2]);
+  else
+    foldz<<<tiles(g.Q, g.Z1, g.pc), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, size, R, T[s % 2]);
+  launched("foldz");
+  rec(0, s, st);
+  waitev(sc, 0, s);
+  a2a(T[s % 2], scz, sdz, a, rcz, rdz);
+  rec(1, s, sc);
+}
+/* x-stage and y C2R of a received field (x parity ox) */
+static void xstage(double2 *a, int ox) {
+  if (lowp)
+    extx<<<tiles(g.kc * g.Q, g.nx, 1), dim3(TL, TR), 0, st>>>(g.nx, ox, g.kc * g.Q, (const float2 *)a, R);
+  else
+    extx<<<tiles(g.kc * g.Q, g.nx, 1), dim3(TL, TR), 0, st>>>(g.nx, ox, g.kc * g.Q, (const double2 *)a, R);
+  launched("extx");
+  cufft(cufftExecZ2Z(px, R, R, CUFFT_INVERSE), "cufftExecZ2Z");
+  foldx<<<tiles(g.kc * g.Q, g.X1, 1), dim3(TL, TR), 0, st>>>(g.nx, g.kc * g.Q, R, a);
+  launched("foldx");
+  cufft(cufftExecZ2D(py[1], a, (double *)a), "cufftExecZ2D");
+}
 /* n fields a[c] with parities ox[c], oz[c]. Pipelined: the all-to-all of field c (stream sc, buffer
-   T[c % 2]) overlaps the compute of fields c - 1 and c + 1 (stream st). Events: 0 compute side done
-   with T[c % 2] / a[c] ready to send, 1 all-to-all c done, 2 T[c % 2] free again. */
+   T[c % 2]) overlaps the compute of fields c - 1 and c + 1 (stream st). */
 static void synthesis(int n, double2 **a, const int *ox, const int *oz) {
   for (int c = 0; c <= n; c++) {
-    if (c < n) {
-      extz<<<tiles(g.Q, g.nz, g.pc), dim3(TL, TR), 0, st>>>(g.nz, oz[c], g.Q, g.Z1, g.pc, 1, a[c], R);
-      launched("extz");
-      cufft(cufftExecZ2Z(pz, R, R, CUFFT_INVERSE), "cufftExecZ2Z");
-      if (c >= 2)
-        waitev(st, 1, c - 2);
-      foldz<<<tiles(g.Q, g.Z1, g.pc), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, size, R,
-                                                             T[c % 2]);
-      launched("foldz");
-      rec(0, c, st);
-      waitev(sc, 0, c);
-      a2a(T[c % 2], scz, sdz, a[c], rcz, rdz);
-      rec(1, c, sc);
-    }
+    if (c < n)
+      zsend(c, a[c], oz[c]);
     if (c >= 1) {
-      int d = c - 1;
-      waitev(st, 1, d);
-      extx<<<tiles(g.kc * g.Q, g.nx, 1), dim3(TL, TR), 0, st>>>(g.nx, ox[d], g.kc * g.Q, a[d], R);
-      launched("extx");
-      cufft(cufftExecZ2Z(px, R, R, CUFFT_INVERSE), "cufftExecZ2Z");
-      foldx<<<tiles(g.kc * g.Q, g.X1, 1), dim3(TL, TR), 0, st>>>(g.nx, g.kc * g.Q, R, a[d]);
-      launched("foldx");
-      cufft(cufftExecZ2D(py[1], a[d], (double *)a[d]), "cufftExecZ2D");
+      waitev(st, 1, c - 1);
+      xstage(a[c - 1], ox[c - 1]);
     }
   }
+}
+/* vorticity in the mixed layout after the exchange ([p][kloc][q]: x, y spectral, z physical):
+   which 0: c = omega_z = i kx v - i ky u (a = u, b = v); 1: c = omega_x = i ky w - c (a = w, c = d_z v in);
+   2: c = omega_y = c - i kx w (a = w, c = d_z u in) */
+template <class E> __global__ static void vortm(G g, int which, const E *a, const E *b, E *c) {
+  long l = blockIdx.x * (long)blockDim.x + threadIdx.x;
+  if (l >= g.X1 * g.kc * g.Q)
+    return;
+  double kx = g.ax * (l / (g.kc * g.Q)), ky = g.ay * (l % g.Q);
+  double2 A = ld2(a, l), C;
+  if (which == 0) {
+    double2 B = ld2(b, l);
+    C = make_double2(-(kx * B.y - ky * A.y), kx * B.x - ky * A.x);
+  } else {
+    C = ld2(c, l);
+    C = which == 1 ? make_double2(-ky * A.y - C.x, ky * A.x - C.y) : make_double2(C.x + kx * A.y, C.y - kx * A.x);
+  }
+  st2(c, l, C);
+}
+static void vort(int which, double2 *a, double2 *b, double2 *c) {
+  if (lowp)
+    vortm<<<grid(g.X1 * g.kc * g.Q), nthread, 0, st>>>(g, which, (const float2 *)a, (const float2 *)b, (float2 *)c);
+  else
+    vortm<<<grid(g.X1 * g.kc * g.Q), nthread, 0, st>>>(g, which, (const double2 *)a, (const double2 *)b, c);
+  launched("vortm");
+}
+/* u, omega on the physical slab from five exchanges: b0..b2 = u, v, w, b3 = d_z v, b4 = d_z u (spectral, from
+   spread5); omega_x, omega_y, omega_z are formed in the mixed layout (b3, b4, b5). Order u, v, d_z v, w, d_z u. */
+static void synth5(double2 **b) {
+  zsend(0, b[0], uz[0]);
+  zsend(1, b[1], uz[1]);
+  zsend(2, b[3], 1);
+  waitev(st, 1, 0);
+  waitev(st, 1, 1);
+  vort(0, b[0], b[1], b[5]);
+  xstage(b[0], ux[0]);
+  xstage(b[1], ux[1]);
+  xstage(b[5], ox6[5]);
+  zsend(3, b[2], uz[2]);
+  zsend(4, b[4], 1);
+  waitev(st, 1, 2);
+  waitev(st, 1, 3);
+  vort(1, b[2], NULL, b[3]);
+  xstage(b[3], ox6[3]);
+  waitev(st, 1, 4);
+  vort(2, b[2], NULL, b[4]);
+  xstage(b[4], ox6[4]);
+  xstage(b[2], ux[2]);
 }
 static void analysis(int n, double2 **a, const int *ox, const int *oz) {
   for (int c = 0; c <= n; c++) {
     if (c < n) {
       cufft(cufftExecD2Z(py[0], (double *)a[c], a[c]), "cufftExecD2Z");
-      extx<<<tiles(g.kc * g.Q, g.nx, 1), dim3(TL, TR), 0, st>>>(g.nx, ox[c], g.kc * g.Q, a[c], R);
+      extx<<<tiles(g.kc * g.Q, g.nx, 1), dim3(TL, TR), 0, st>>>(g.nx, ox[c], g.kc * g.Q,
+                                                                (const double2 *)a[c], R);
       launched("extx");
       cufft(cufftExecZ2Z(px, R, R, CUFFT_FORWARD), "cufftExecZ2Z");
-      foldx<<<tiles(g.kc * g.Q, g.X1, 1), dim3(TL, TR), 0, st>>>(g.nx, g.kc * g.Q, R, a[c]);
+      if (lowp)
+        foldx<<<tiles(g.kc * g.Q, g.X1, 1), dim3(TL, TR), 0, st>>>(g.nx, g.kc * g.Q, R, (float2 *)a[c]);
+      else
+        foldx<<<tiles(g.kc * g.Q, g.X1, 1), dim3(TL, TR), 0, st>>>(g.nx, g.kc * g.Q, R, a[c]);
       launched("foldx");
       rec(0, c, st);
       waitev(sc, 0, c);
@@ -252,8 +336,12 @@ static void analysis(int n, double2 **a, const int *ox, const int *oz) {
     if (c >= 1) {
       int d = c - 1;
       waitev(st, 1, d);
-      extz<<<tiles(g.Q, g.nz, g.pc), dim3(TL, TR), 0, st>>>(g.nz, oz[d], g.Q, g.Z1, g.pc, size,
-                                                            T[d % 2], R);
+      if (lowp)
+        extz<<<tiles(g.Q, g.nz, g.pc), dim3(TL, TR), 0, st>>>(g.nz, oz[d], g.Q, g.Z1, g.pc, size,
+                                                              (const float2 *)T[d % 2], R);
+      else
+        extz<<<tiles(g.Q, g.nz, g.pc), dim3(TL, TR), 0, st>>>(g.nz, oz[d], g.Q, g.Z1, g.pc, size,
+                                                              (const double2 *)T[d % 2], R);
       launched("extz");
       rec(2, d, st);
       cufft(cufftExecZ2Z(pz, R, R, CUFFT_FORWARD), "cufftExecZ2Z");
@@ -278,6 +366,21 @@ __global__ static void spread(G g, const double2 *u, const double2 *v,
   b3[l] = make_double2(-(ky * c.y - kz * b.y), ky * c.x - kz * b.x);
   b4[l] = make_double2(-(kz * a.y - kx * c.y), kz * a.x - kx * c.x);
   b5[l] = make_double2(-(kx * b.y - ky * a.y), kx * b.x - ky * a.x);
+}
+/* spectral inputs of synth5: u, v, w, d_z v, d_z u */
+__global__ static void spread5(G g, const double2 *u, const double2 *v, const double2 *w, double2 *b0, double2 *b1,
+                               double2 *b2, double2 *b3, double2 *b4) {
+  long l = blockIdx.x * (long)blockDim.x + threadIdx.x, i, j, k;
+  double kx, ky, kz;
+  if (l >= g.nf)
+    return;
+  mode(g, l, &i, &j, &k, &kx, &ky, &kz);
+  double2 a = u[l], b = v[l];
+  b0[l] = a;
+  b1[l] = b;
+  b2[l] = w[l];
+  b3[l] = make_double2(-kz * b.y, kz * b.x);
+  b4[l] = make_double2(-kz * a.y, kz * a.x);
 }
 __global__ static void cross(G g, double s, double *b0, double *b1, double *b2,
                              const double *b3, const double *b4,
@@ -416,6 +519,89 @@ __global__ static void spectrum(G g, double dk, long ns, const double2 *u, const
   atomicAdd(&E[ns + i], q);
   atomicAdd(&E[ns + g.nx / 2 + 1 + j], q);
   atomicAdd(&E[ns + g.nx / 2 + 1 + g.ny / 2 + 1 + k], q);
+}
+/* Yao & Hussain 2020a section 2 (as cases2/yao.py): omega on the physical slab [i][kloc][j] (rows 2Q), x = i dx,
+   y = -Ly/2 + j dy, z = (k0 + kloc) dz (z >= Lz/2 wrapped to z - Lz). Tube 1 x_c = (-x0 + p cos s cos al,
+   p cos s sin al, s), tube 2 its mirror in x = 0 with the opposite sign; w = w0 [1 - g(r/rc)], r = distance to
+   the nearest axis point (Newton on (x - x_c(s)) . t(s) = 0 from s = z), direction t / |t| there. */
+__global__ static void yaow(G g, double Lx, double Ly, double Lz, double *w0_, double *w1_, double *w2_) {
+  const double x0 = 0.81, pp = 0.2, rc = 2.0 / 3, w0 = 20, K0 = 0.5 * exp(2.0) * log(2.0);
+  long l = blockIdx.x * (long)blockDim.x + threadIdx.x;
+  if (l >= g.X1 * g.kc * g.ny)
+    return;
+  long row = l / g.ny, j = l % g.ny, i = row / g.kc, k = g.k0 + row % g.kc, r = row * 2 * g.Q + j;
+  double x = i * Lx / g.nx, y = -Ly / 2 + j * Ly / g.ny, z = k * Lz / g.nz;
+  if (z >= Lz / 2)
+    z -= Lz;
+  double o[3] = {0, 0, 0};
+  for (int tb = 0; tb < 2; tb++) {
+    double xc0 = tb == 0 ? -x0 : x0, al = tb == 0 ? pi / 3 : pi - pi / 3, sg = tb == 0 ? 1 : -1;
+    double ca = pp * cos(al), sa = pp * sin(al), s = z, cx, cy, dx, dy, dz, tx, ty;
+    for (int it = 0; it < 50; it++) {
+      cx = xc0 + ca * cos(s);
+      cy = sa * cos(s);
+      dx = x - cx;
+      dy = y - cy;
+      dz = z - s;
+      dz -= Lz * nearbyint(dz / Lz);
+      tx = -ca * sin(s);
+      ty = -sa * sin(s);
+      double gg = dx * tx + dy * ty + dz, dg = -(tx * tx + ty * ty + 1) + dx * (-ca * cos(s)) + dy * (-sa * cos(s));
+      double h = gg / dg;
+      s -= h;
+      if (fabs(h) < 1e-14)
+        break;
+    }
+    cx = xc0 + ca * cos(s);
+    cy = sa * cos(s);
+    dz = z - s;
+    dz -= Lz * nearbyint(dz / Lz);
+    double rr = sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy) + dz * dz), q = rr / rc, f;
+    tx = -ca * sin(s);
+    ty = -sa * sin(s);
+    if (q >= 1)
+      continue;
+    f = q > 0 ? w0 * (1 - exp(-K0 / q * exp(1 / (q - 1)))) : w0;
+    f *= sg / sqrt(tx * tx + ty * ty + 1);
+    o[0] += f * tx;
+    o[1] += f * ty;
+    o[2] += f;
+  }
+  w0_[r] = o[0];
+  w1_[r] = o[1];
+  w2_[r] = o[2];
+}
+/* u = i k x omega / |k|^2 (omega spectral in a, b, c; the Nyquist planes and the mean set to zero) */
+__global__ static void biot(G g, const double2 *a, const double2 *b, const double2 *c, double2 *u,
+                            double2 *v, double2 *w) {
+  long l = blockIdx.x * (long)blockDim.x + threadIdx.x, i, j, k;
+  double kx, ky, kz;
+  if (l >= g.nf)
+    return;
+  mode(g, l, &i, &j, &k, &kx, &ky, &kz);
+  double kk = kx * kx + ky * ky + kz * kz;
+  double m = kk > 0 && i != g.Nx && 2 * j != g.ny && k != g.Nz ? 1 / kk : 0;
+  double2 A = a[l], B = b[l], C = c[l];
+  u[l] = make_double2(-(ky * C.y - kz * B.y) * m, (ky * C.x - kz * B.x) * m);
+  v[l] = make_double2(-(kz * A.y - kx * C.y) * m, (kz * A.x - kx * C.x) * m);
+  w[l] = make_double2(-(kx * B.y - ky * A.y) * m, (kx * B.x - ky * A.x) * m);
+}
+/* Gamma_z = int_{z=0, x<0} omega_z = int v(0, y, 0) dy - int v(-pi, y, 0) dy (Stokes; v even in x): rows
+   i = 0 and i = Nx of plane k = 0 (rank with k0 = 0), one block */
+__global__ static void gzsum(G g, const double *v, double *out) {
+  __shared__ double sh[nthread];
+  double acc = 0;
+  for (long j = threadIdx.x; j < g.ny; j += blockDim.x)
+    acc += v[j] - v[g.Nx * g.kc * 2 * g.Q + j];
+  sh[threadIdx.x] = acc;
+  __syncthreads();
+  for (int q = blockDim.x / 2; q > 0; q /= 2) {
+    if (threadIdx.x < q)
+      sh[threadIdx.x] += sh[threadIdx.x + q];
+    __syncthreads();
+  }
+  if (threadIdx.x == 0)
+    out[0] = sh[0];
 }
 /* d = scale * i k_j h (spectral derivative along j) */
 __global__ static void lderiv(G g, int j, const double2 *h, double2 *d, double scale) {
@@ -611,6 +797,10 @@ int main(int argc, char **argv) {
   char path[FILENAME_MAX], *ipath, *rpath, *end, *name;
   double ee = 0, LL = 0, L0 = 0, HH = 3.2;
   int L0start = 0; /* -0: lambda2 crop also at the restart step */
+  int yao = 0, sflag = 0, kdump = 0; /* -I yao, -S, -k */
+  long fg[3] = {0, 0, 0}; /* -G: grid of a k. restart file */
+  double cfl = 0, dtmax, h, Gz = 0; /* -c */
+  int dtknown = 0;
   char *tlist = NULL;
   long ne, nL, nT = 0, *Ts = NULL;
   double nu, dt, T_, t, dd, F, X, Y, Z, x, N, s, cx, cy, cz, kc, sums[6], mx[2],
@@ -634,8 +824,13 @@ int main(int argc, char **argv) {
     for (int c = 0; c < 8; c++)
       cuda(cudaEventCreateWithFlags(&ev[k][c], cudaEventDisableTiming), "cudaEventCreate");
   usempi = getenv("BOXSYM_MPI") != NULL && atoi(getenv("BOXSYM_MPI")) != 0;
+  syn6 = getenv("BOXSYM_SYN6") != NULL && atoi(getenv("BOXSYM_SYN6")) != 0;
+  nocomm = getenv("BOXSYM_NOCOMM") != NULL && atoi(getenv("BOXSYM_NOCOMM")) != 0;
+  nofuse = getenv("BOXSYM_NOFUSE") != NULL && atoi(getenv("BOXSYM_NOFUSE")) != 0;
   MPI_Type_contiguous(2, MPI_DOUBLE, &cplx);
   MPI_Type_commit(&cplx);
+  MPI_Type_contiguous(2, MPI_FLOAT, &cplxf);
+  MPI_Type_commit(&cplxf);
   if (!usempi) {
     ncclUniqueId id;
     if (rank == 0)
@@ -660,6 +855,10 @@ int main(int argc, char **argv) {
                 "  [-e <spectrum interval> (e.STEP: shell and 1D spectra, as boxmp)]\n"
                 "  [-L <lambda2 interval> (l.STEP.npy: full-box float32 crop +-H around the pair centre, as boxmp)]\n"
                 "  [-l <first lambda2 time>] [-H <half width, default 3.2>] [-0 (crop also at the restart step)]\n"
+                "  [-I yao (Yao & Hussain 2020a IC on the GPU, instead of -i/-r)] [-c <Courant number> (adaptive dt <= -s;\n"
+                "  -d -e -L -T are then times, q.STEP.t holds t)] [-S (all-to-all in float)]\n"
+                "  [-k (dumps are k.STEP: spectral, double complex [3][nx/2+1][nz/2+1][ny/2+1], unnormalized)]\n"
+                "  [-r k.STEP [-G nx,ny,nz (its grid if not this one: zero-padded, its Nyquist modes dropped)]]\n"
                 "  = gpu/boxsym on P GPUs; input and dumps in q. format only (gpu/symq, gpu/symfull)\n"
                 "  all-to-all by NCCL; BOXSYM_MPI=1: CUDA-aware MPI_Alltoallv (allows several ranks per GPU)\n");
       MPI_Finalize();
@@ -671,6 +870,14 @@ int main(int argc, char **argv) {
     }
     if (argv[0][1] == '0') {
       L0start = 1;
+      continue;
+    }
+    if (argv[0][1] == 'S') {
+      sflag = 1;
+      continue;
+    }
+    if (argv[0][1] == 'k') {
+      kdump = 1;
       continue;
     }
     if (argv[1] == NULL)
@@ -685,6 +892,17 @@ int main(int argc, char **argv) {
     }
     if (argv[0][1] == 'T') {
       tlist = *++argv;
+      continue;
+    }
+    if (argv[0][1] == 'G') {
+      if (sscanf(*++argv, "%ld,%ld,%ld", &fg[0], &fg[1], &fg[2]) != 3)
+        fail("-G '%s': need nx,ny,nz%s", *argv, "");
+      continue;
+    }
+    if (argv[0][1] == 'I') {
+      if (strcmp(*++argv, "yao") != 0)
+        fail("-I '%s': only 'yao' is known%s", *argv, "");
+      yao = 1;
       continue;
     }
     x = strtod(argv[1], &end);
@@ -736,14 +954,19 @@ int main(int argc, char **argv) {
     case 'H':
       HH = x;
       break;
+    case 'c':
+      cfl = x;
+      break;
     default:
       fail("unknown option '%s'%s", *argv, "");
     }
     argv++;
   }
+  if (cfl < 0 || (g.f ? 1.5 : 1.0) * cfl > 3.3)
+    fail("-c: need 0 < C <= 3.3 (2.2 with -f)%s%s", "", "");
   if (nx < 4 || ny < 4 || nz < 4 || nx % 2 || ny % 2 || nz % 2 || nu < 0 || dt <= 0 ||
-      T_ <= 0 || X <= 0 || Y <= 0 || Z <= 0 || (ipath == NULL) == (rpath == NULL))
-    fail("need -x -y -z (all even), -n, -s, -t and one of -i, -r%s%s", "", "");
+      T_ <= 0 || X <= 0 || Y <= 0 || Z <= 0 || (ipath != NULL) + (rpath != NULL) + yao != 1)
+    fail("need -x -y -z (all even), -n, -s, -t and one of -i, -r, -I%s%s", "", "");
   g.nx = nx;
   g.ny = ny;
   g.nz = nz;
@@ -790,9 +1013,11 @@ int main(int argc, char **argv) {
   cy = g.ay * ((ny - 1) / 3);
   cz = g.az * ((nz - 1) / 3);
   kc = fmin(cx, fmin(cy, cz));
-  nd = dd > 0 ? steps("-d", dd, dt) : 0;
-  ne = ee > 0 ? steps("-e", ee, dt) : 0;
-  nL = LL > 0 ? steps("-L", LL, dt) : 0;
+  dtmax = dt;
+  nd = dd > 0 && cfl == 0 ? steps("-d", dd, dt) : 0;
+  ne = ee > 0 && cfl == 0 ? steps("-e", ee, dt) : 0;
+  nL = LL > 0 && cfl == 0 ? steps("-L", LL, dt) : 0;
+  double *Tt = NULL; /* -T times (adaptive) */
   if (tlist != NULL) {
     char *c = tlist;
     if ((Ts = (long *)malloc((strlen(tlist) + 1) * sizeof(long))) == NULL)
@@ -801,13 +1026,16 @@ int main(int argc, char **argv) {
       double v = strtod(c, &end);
       if (end == c || (*end != ',' && *end != '\0'))
         fail("-T '%s' is not a list of times%s", tlist, "");
-      Ts[nT++] = steps("-T", v, dt);
+      if ((Tt = (double *)realloc(Tt, (nT + 1) * sizeof(double))) == NULL)
+        fail("malloc failed%s%s", "", "");
+      Tt[nT] = v;
+      Ts[nT++] = cfl == 0 ? steps("-T", v, dt) : -1;
       if (*end == '\0')
         break;
       c = end + 1;
     }
   }
-  nt = steps("-t", T_, dt);
+  nt = cfl == 0 ? steps("-t", T_, dt) : 0;
   for (int c = 0; c < 3; c++) {
     cuda(cudaMalloc(&u[c], g.nf * sizeof(double2)), "cudaMalloc");
     cuda(cudaMalloc(&du[c], g.nf * sizeof(double2)), "cudaMalloc");
@@ -852,6 +1080,43 @@ int main(int argc, char **argv) {
   /* file [c][i][k][j]: my rows are k0..k0+kc-1 of every i: X1 contiguous pieces of kc ny doubles */
   struct stat sb;
   tio = MPI_Wtime();
+  if (yao) {
+    yaow<<<grid(nloc), nthread, 0, st>>>(g, X * pi, Y * pi, Z * pi, (double *)b[0], (double *)b[1], (double *)b[2]);
+    launched("yaow");
+    analysis(3, b, wx, wz);
+    biot<<<grid(g.nf), nthread, 0, st>>>(g, b[0], b[1], b[2], u[0], u[1], u[2]);
+    launched("biot");
+    devsync();
+    name = (char *)"-I yao";
+  } else if (strncmp(strrchr(name, '/') ? strrchr(name, '/') + 1 : name, "k.", 2) == 0) {
+    long fx = fg[0] ? fg[0] : nx, fy = fg[0] ? fg[1] : ny, fz = fg[0] ? fg[2] : nz;
+    long fX1 = fx / 2 + 1, fZ1 = fz / 2 + 1, fQ = fy / 2 + 1, same = fx == nx && fy == ny && fz == nz;
+    long pk = same ? fX1 : fx / 2, rk = same ? fZ1 : fz / 2, qk = same ? fQ : fy / 2;
+    double sc_ = N / ((double)fx * fy * fz); /* the file holds unnormalized FFT coefficients of its grid */
+    if (fx > nx || fy > ny || fz > nz || fx % 2 || fy % 2 || fz % 2)
+      fail("-G: the k. file grid must be even and not larger than -x -y -z%s%s", "", "");
+    double2 *hk = (double2 *)malloc(g.nf * sizeof(double2)), *pl = (double2 *)malloc(fZ1 * fQ * sizeof(double2));
+    if (hk == NULL || pl == NULL)
+      fail("malloc failed%s%s", "", "");
+    if ((fd = open(name, O_RDONLY)) < 0)
+      fail("fail to open '%s'%s", name, "");
+    if (fstat(fd, &sb) != 0 || sb.st_size != (off_t)(3 * fX1 * fZ1 * fQ * sizeof(double2)))
+      fail("'%s' has wrong size (not a k. file of this grid or -G?)%s", name, "");
+    for (int c = 0; c < 3; c++) {
+      memset(hk, 0, g.nf * sizeof(double2));
+      for (long p = g.p0; p < g.p0 + g.pc && p < pk; p++) {
+        if (rw(0, fd, pl, fZ1 * fQ * sizeof(double2), (off_t)(((c * fX1 + p) * fZ1) * fQ * sizeof(double2))) != 0)
+          fail("fail to read '%s'%s", name, "");
+        for (long r = 0; r < rk; r++)
+          for (long q = 0; q < qk; q++)
+            hk[((p - g.p0) * g.Z1 + r) * g.Q + q] = make_double2(pl[r * fQ + q].x * sc_, pl[r * fQ + q].y * sc_);
+      }
+      cuda(cudaMemcpy(u[c], hk, g.nf * sizeof(double2), cudaMemcpyHostToDevice), "cudaMemcpy");
+    }
+    close(fd);
+    free(hk);
+    free(pl);
+  } else {
   if ((fd = open(name, O_RDONLY)) < 0)
     fail("fail to open '%s'%s", name, "");
   if (fstat(fd, &sb) != 0 || sb.st_size != (off_t)(3 * g.X1 * g.Z1 * ny * sizeof(double)))
@@ -868,26 +1133,85 @@ int main(int argc, char **argv) {
     cuda(cudaMemcpy(u[c], b[0], g.nf * sizeof(double2), cudaMemcpyDeviceToDevice), "cudaMemcpy");
   }
   close(fd);
+  }
   MPI_Barrier(MPI_COMM_WORLD);
   if (rank == 0)
     fprintf(stderr, "boxsymmp: read '%s' in %.1f s\n", name, MPI_Wtime() - tio);
   start = tstep;
   t = tstep * dt;
+  if (rpath != NULL) {
+    /* q.STEP.t (written with every dump): t dt */
+    FILE *ft;
+    double tf, df;
+    sprintf(path, "%s.t", rpath);
+    if ((ft = fopen(path, "r")) != NULL) {
+      if (fscanf(ft, "%lf %lf", &tf, &df) != 2)
+        fail("cannot read '%s'%s", path, "");
+      fclose(ft);
+      if (cfl > 0) {
+        t = tf;
+        dt = fmin(df, dtmax);
+        dtknown = fg[0] == 0 || (fg[0] == nx && fg[1] == ny && fg[2] == nz); /* a padded restart sets dt anew */
+      } else if (fabs(tf - t) > 1e-9 * fmax(1, t))
+        fail("'%s': t differs from STEP * -s (an adaptive run? use -c)%s", path, "");
+    } else if (cfl > 0)
+      fail("-c needs '%s' (t of the checkpoint)%s", path, "");
+  }
+  double *dG;
+  cuda(cudaMalloc(&dG, sizeof(double)), "cudaMalloc");
+  if (getenv("BOXSYM_A2AONLY") != NULL) {
+    /* timing: K steps worth of exchanges alone (5 stages x (5 or 6 synthesis + 3 analysis)), same buffers and
+       precision as the RK stages, back to back on the exchange stream */
+    int K = atoi(getenv("BOXSYM_A2AONLY")), ns = syn6 ? 6 : 5;
+    lowp = sflag;
+    for (int it = 0; it <= K; it++) {
+      if (it == 1) {
+        cuda(cudaStreamSynchronize(sc), "cudaStreamSynchronize");
+        MPI_Barrier(MPI_COMM_WORLD);
+        t0 = MPI_Wtime();
+      }
+      for (int r = 0; r < 5; r++) {
+        for (int c = 0; c < ns; c++)
+          a2a(T[c % 2], scz, sdz, b[c], rcz, rdz);
+        for (int c = 0; c < 3; c++)
+          a2a(b[c], rcz, rdz, T[c % 2], scz, sdz);
+      }
+    }
+    cuda(cudaStreamSynchronize(sc), "cudaStreamSynchronize");
+    MPI_Barrier(MPI_COMM_WORLD);
+    t1 = MPI_Wtime();
+    lowp = 0;
+    double by = (double)(ns + 3) * 5 * g.X1 * g.Z1 * g.Q * (sflag ? 8 : 16);
+    if (rank == 0)
+      fprintf(stderr, "boxsymmp: exchanges only (%d per step, %s): %.4f s/step, %.1f GB/step in all, %.1f GB/s per rank (incl. self)\n",
+              (ns + 3) * 5, sflag ? "float" : "double", (t1 - t0) / K, by / 1e9, by / size / ((t1 - t0) / K) / 1e9);
+  }
   devsync();
   MPI_Barrier(MPI_COMM_WORLD);
   t0 = MPI_Wtime();
   for (;;) {
-    int diag = tstep % 10 == 0, dump = nd > 0 && tstep % nd == 0;
-    for (long q = 0; q < nT; q++)
-      if (Ts[q] == tstep)
-        dump = 1;
-    dump = dump && (rpath == NULL || tstep != start);
-    if (diag || dump) {
-      spread<<<grid(g.nf), nthread, 0, st>>>(g, u[0], u[1], u[2], b[0], b[1], b[2], b[3], b[4], b[5]);
-      launched("spread");
-      synthesis(6, b, ox6, oz6);
+    int last = cfl == 0 ? tstep >= nt : t >= T_ - 1e-9 * fmax(1, T_);
+    int diag = tstep % 10 == 0 || tstep == start || last, dump, espec, lam;
+#define MULT(t, P) (fabs((t) - (P) * nearbyint((t) / (P))) <= 1e-9 * fmax(1, (t)))
+    if (cfl == 0) {
+      dump = nd > 0 && tstep % nd == 0;
+      for (long q = 0; q < nT; q++)
+        if (Ts[q] == tstep)
+          dump = 1;
+      espec = ne > 0 && tstep % ne == 0;
+      lam = nL > 0 && tstep % nL == 0 && t >= L0 - 1e-9;
+    } else {
+      dump = dd > 0 && MULT(t, dd);
+      for (long q = 0; q < nT; q++)
+        if (fabs(t - Tt[q]) <= 1e-9 * fmax(1, t))
+          dump = 1;
+      espec = ee > 0 && MULT(t, ee);
+      lam = LL > 0 && MULT(t, LL) && t >= L0 - 1e-9;
     }
-    if (diag) {
+    dump = dump && (rpath == NULL || tstep != start);
+    /* diagnostics on u^n: from the first RK stage's synthesis (fuse), or (dump, last step) a synthesis of their own */
+    int fuse = diag && !dump && !last && !nofuse;
+    auto diagnose = [&]() {
       norms<<<nblock, nthread, 0, st>>>(g, u[0], u[1], u[2], dP);
       launched("norms");
       collect(6, 0, dP, P, sums);
@@ -896,6 +1220,21 @@ int main(int argc, char **argv) {
                                  (double *)b[5], dP);
       launched("peaks");
       collect(2, 1, dP, P, mx);
+      cuda(cudaMemsetAsync(dG, 0, sizeof(double), st), "cudaMemsetAsync");
+      if (g.k0 == 0 && g.kc > 0)
+        gzsum<<<1, nthread, 0, st>>>(g, (const double *)b[1], dG);
+      launched("gzsum");
+      devsync();
+      cuda(cudaMemcpy(&Gz, dG, sizeof(double), cudaMemcpyDeviceToHost), "cudaMemcpy");
+      MPI_Allreduce(MPI_IN_PLACE, &Gz, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+      Gz *= s * Y * pi / ny;
+      if (cfl > 0 && !nocomm && (tstep % 10 == 0 || !dtknown)) {
+        /* the same rule in a continuous and a restarted run (dt of the checkpoint from q.STEP.t); the out
+           line shows the dt of the next steps and its C */
+        double dn = cfl / mx[0];
+        dt = fmin(dtmax, fmin(dn, dtknown ? 1.1 * dt : dn));
+        dtknown = 1;
+      }
       double E = sums[0] * s * s, Om = sums[1] * s * s, eps = 2 * nu * Om, u2 = 2 * E / 3;
       double q[] = {t,
                     E,
@@ -908,19 +1247,21 @@ int main(int argc, char **argv) {
                     pi / (2 * u2) * sums[2] * s * s,
                     sums[3] / sums[0],
                     sums[4] / sums[0],
-                    sums[5] / sums[0]};
+                    sums[5] / sums[0],
+                    Gz,
+                    dt};
       char sv[64];
-      if (!(isfinite(E) && isfinite(Om) && isfinite(mx[0]) && isfinite(mx[1]))) {
+      if (!nocomm && !(isfinite(E) && isfinite(Om) && isfinite(mx[0]) && isfinite(mx[1]))) {
         snprintf(sv, sizeof sv, "%ld", tstep);
         fail("non-finite E, Omega, C or wmax at step %s%s", sv, "");
       }
-      if ((g.f ? 1.5 : 1.0) * dt * mx[0] > 3.3) {
+      if (!nocomm && (g.f ? 1.5 : 1.0) * dt * mx[0] > 3.3) {
         snprintf(sv, sizeof sv, "%ld (C = %g)", tstep, dt * mx[0]);
         fail("Courant number too large at step %s%s: reduce -s", sv, "");
       }
       if (rank == 0) {
         if (tstep == start)
-          printf("step t E Omega C wmax keta Rlambda lambda L tailx taily tailz\n");
+          printf("step t E Omega C wmax keta Rlambda lambda L tailx taily tailz Gz dt\n");
         printf("% 10ld", tstep);
         for (int i = 0; i < (int)(sizeof q / sizeof *q); i++)
           printf(" % .16e", q[i]);
@@ -928,8 +1269,58 @@ int main(int argc, char **argv) {
         if (fflush(stdout) != 0 || ferror(stdout))
           fail("fail to write stdout%s%s", "", "");
       }
+    };
+    if ((diag && !fuse) || dump) {
+      spread<<<grid(g.nf), nthread, 0, st>>>(g, u[0], u[1], u[2], b[0], b[1], b[2], b[3], b[4], b[5]);
+      launched("spread");
+      synthesis(6, b, ox6, oz6);
     }
-    if (dump) {
+    if (diag && !fuse)
+      diagnose();
+    if (dump && kdump) {
+      /* k.STEP: rank's p rows are one contiguous block per component */
+      sprintf(path, "k.%08ld.tmp", tstep);
+      tio = MPI_Wtime();
+      bad = 0;
+      double2 *hk = (double2 *)malloc(g.nf * sizeof(double2));
+      if (hk == NULL)
+        fail("malloc failed%s%s", "", "");
+      if (rank == 0 &&
+          ((fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644)) < 0 ||
+           ftruncate(fd, (off_t)(3 * g.X1 * g.Z1 * g.Q * sizeof(double2))) != 0 || close(fd) != 0))
+        bad = 1;
+      if (any(bad))
+        fail("fail to open '%s'%s", path, "");
+      if ((fd = open(path, O_WRONLY)) < 0)
+        bad = 1;
+      for (int c = 0; c < 3 && !bad; c++) {
+        cuda(cudaMemcpy(hk, u[c], g.nf * sizeof(double2), cudaMemcpyDeviceToHost), "cudaMemcpy");
+        if (g.nf > 0 && rw(1, fd, hk, g.nf * sizeof(double2), (off_t)((c * g.X1 + g.p0) * g.Z1 * g.Q * sizeof(double2))) != 0)
+          bad = 1;
+      }
+      free(hk);
+      if (fd >= 0 && (fsync(fd) != 0 || close(fd) != 0))
+        bad = 1;
+      if (any(bad))
+        fail("fail to write '%s'%s", path, "");
+      char final[FILENAME_MAX];
+      sprintf(final, "k.%08ld", tstep);
+      if (rank == 0 && rename(path, final) != 0)
+        bad = 1;
+      if (any(bad))
+        fail("fail to rename '%s'%s", path, "");
+      if (rank == 0) {
+        FILE *ft;
+        sprintf(path, "k.%08ld.t", tstep);
+        if ((ft = fopen(path, "w")) == NULL || fprintf(ft, "%.17g %.17g\n", t, dt) < 0 || fclose(ft) != 0)
+          bad = 1;
+      }
+      if (any(bad))
+        fail("fail to write '%s'%s", path, "");
+      if (rank == 0)
+        fprintf(stderr, "boxsymmp: wrote '%s' in %.1f s\n", final, MPI_Wtime() - tio);
+    }
+    if (dump && !kdump) {
       sprintf(path, "q.%08ld.tmp", tstep);
       tio = MPI_Wtime();
       bad = 0;
@@ -962,10 +1353,18 @@ int main(int argc, char **argv) {
         bad = 1;
       if (any(bad))
         fail("fail to rename '%s'%s", path, "");
+      if (rank == 0) {
+        FILE *ft;
+        sprintf(path, "q.%08ld.t", tstep);
+        if ((ft = fopen(path, "w")) == NULL || fprintf(ft, "%.17g %.17g\n", t, dt) < 0 || fclose(ft) != 0)
+          bad = 1;
+      }
+      if (any(bad))
+        fail("fail to write '%s'%s", path, "");
       if (rank == 0)
         fprintf(stderr, "boxsymmp: wrote '%s' in %.1f s\n", final, MPI_Wtime() - tio);
     }
-    if (ne > 0 && tstep % ne == 0) {
+    if (espec) {
       double dk = fmin(g.ax, fmin(g.ay, g.az));
       long ns = (long)(sqrt(pow(g.ax * (nx / 2), 2) + pow(g.ay * (ny / 2), 2) + pow(g.az * (nz / 2), 2)) / dk) + 2;
       long nbin = ns + nx / 2 + 1 + ny / 2 + 1 + nz / 2 + 1;
@@ -998,7 +1397,7 @@ int main(int argc, char **argv) {
       }
       free(hE);
     }
-    if (nL > 0 && tstep % nL == 0 && t >= L0 - 1e-9 && (rpath == NULL || tstep != start || L0start)) {
+    if (lam && (rpath == NULL || tstep != start || L0start)) {
       /* pair centre from the omega_z^2 profiles of the full box (omega_z = d_x v - d_y u synthesized on the
          slab), then the velocity gradient (9 syntheses through b) and lambda2 only for the planes
          i <= imax the crop needs; crop gathered on rank 0 and mirrored to the full box */
@@ -1151,29 +1550,63 @@ int main(int argc, char **argv) {
       if (any(bad))
         fail("fail to write '%s'%s", lt, "");
     }
-    if (tstep >= nt)
+    if (last)
       break;
+    /* step size: dt, or (adaptive) cut to land on the next output time */
+    double te = T_;
+    int land = 0;
+    auto steph = [&]() {
+    h = dt;
+    if (cfl > 0) {
+      double P_[3] = {dd, ee, LL};
+      for (int q = 0; q < 3; q++)
+        if (P_[q] > 0)
+          te = fmin(te, (floor(t / P_[q] + 1e-9) + 1) * P_[q]);
+      for (long q = 0; q < nT; q++)
+        if (Tt[q] > t + 1e-9 * fmax(1, t))
+          te = fmin(te, Tt[q]);
+      if (te - t <= h * (1 + 1e-9)) {
+        h = te - t;
+        land = 1;
+      }
+    }
+    g.fp = F > 0 ? h / F : 1;
+    };
+    if (!fuse)
+      steph();
+    lowp = sflag;
     for (int r = 0; r < 5; r++) {
-      spread<<<grid(g.nf), nthread, 0, st>>>(g, u[0], u[1], u[2], b[0], b[1], b[2], b[3], b[4], b[5]);
-      launched("spread");
-      synthesis(6, b, ox6, oz6);
+      if (syn6) {
+        spread<<<grid(g.nf), nthread, 0, st>>>(g, u[0], u[1], u[2], b[0], b[1], b[2], b[3], b[4], b[5]);
+        launched("spread");
+        synthesis(6, b, ox6, oz6);
+      } else {
+        spread5<<<grid(g.nf), nthread, 0, st>>>(g, u[0], u[1], u[2], b[0], b[1], b[2], b[3], b[4]);
+        launched("spread5");
+        synth5(b);
+      }
+      if (r == 0 && fuse) {
+        diagnose();
+        steph();
+      }
       cross<<<grid(g.nr), nthread, 0, st>>>(g, s, (double *)b[0], (double *)b[1], (double *)b[2],
                                      (double *)b[3], (double *)b[4], (double *)b[5]);
       launched("cross");
       analysis(3, b, ux, uz);
-      update<<<grid(g.nf), nthread, 0, st>>>(g, r == 4, nu, dt, A[r], B[r], b[0], b[1], b[2], u[0],
+      update<<<grid(g.nf), nthread, 0, st>>>(g, r == 4, nu, h, A[r], B[r], b[0], b[1], b[2], u[0],
                                       u[1], u[2], du[0], du[1], du[2]);
       launched("update");
     }
+    lowp = 0;
     tstep++;
-    t = tstep * dt;
+    t = cfl == 0 ? tstep * dt : land ? te : t + h;
   }
   devsync();
   MPI_Barrier(MPI_COMM_WORLD);
   t1 = MPI_Wtime();
   if (rank == 0)
-    fprintf(stderr, "boxsymmp: %ld steps on %d ranks in %.2f s: %.4f s/step\n", nt - start, size,
-            t1 - t0, nt > start ? (t1 - t0) / (nt - start) : 0.0);
+    fprintf(stderr, "boxsymmp: %ld steps on %d ranks in %.2f s: %.4f s/step\n", tstep - start, size,
+            t1 - t0, tstep > start ? (t1 - t0) / (tstep - start) : 0.0);
   if (!usempi)
     ncclCommDestroy(nccl);
   MPI_Finalize();
