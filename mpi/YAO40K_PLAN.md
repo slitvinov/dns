@@ -178,3 +178,21 @@ Total with the checks: G1 ~18 + base 2.5 + rungs ~28 + fine 66-85 = ~115-135 H20
 Analysis: Omega and |w|max peaks from 2048/2560/3072 (common t* 1.3 start) with Richardson extrapolation in kc
 (order fitted from the three rungs) and the spread as error bar; against the paper's 11.81 and 569.
 Afterwards: keep out/err/e. files and the t* 1.85 k. dump (plus a 512^3 |w|/w_z float16 export); delete the rest.
+
+P2. As launched (2026-10-31 ~14:55 EDT; scripts in mpi/yao/fasrc, netscratch yspec/; all slots --exclude=holygpu8a12204)
+  yspec-g1  running   G1: Re 20000 1536 then 2048 (run/r20k1536, r20k2048), to t* 2.6, C 2, -S, -F.
+  yspec-g3  pending   R1 (run/r9kpad: 512 to t* 1.3 -> 1024 padded), R2 (run/r9k768noS), then the Re 9000 video
+                      fields (run/r9kvid -> 512^3 full box |w|, w_z, lambda2/1000 float16 -> claw re9000/ by the mover).
+  yspec-g2  pending   base 1536 to t* 1.3 (run/l40kbase, k. dump 22 GB), rungs l40k2048 and l40k1536 to t* 1.95.
+  yspec-l4  pending   rung l40k2560, then prod3072.sh = the fine phase y40k3072 (3072^3, t* 1.3 -> 2.3).
+  yspec-l4b pending   afterany yspec-l4: second fine-phase chunk (prod3072.sh resumes from the newest k. dump).
+  yspec-q2  pending   2-node H200 timing (qbench.sh).
+  Gate: prod3072.sh runs src/gate.py once R1, R2 are done and r20k2048 is past t* 2.0; it writes yspec/gate.ok or
+  gate.fail (with the numbers); the fine phase starts only on gate.ok.
+  Rungs and the fine phase: diagnostics also every 0.002 in t* over t* 1.75-1.95 (-D), spectra every 0.02 in t.
+  Fine phase outputs: snapshots at t* 1.5 1.6 1.7 1.75 1.8 1.85 1.9 2.0 2.15 2.3 (quarter crop x < 1.5, |w|, w_z,
+  lambda2/1000 float16, 20.8 GB each), moved to claw /data/share/render/yao/re40000/ by the Mac mover
+  (mpi/yao/mover.sh) and deleted on netscratch; k. dumps every 0.25 in t, newest kept plus t 3.75 (t* 1.747, the
+  start of a 4096 window if the ladder asks for it). Peak netscratch use ~590 GB.
+  Fallback if the rungs show |w|max still moving > 3% from 3072 to the extrapolation: a 4096^3 window t* 1.747 -> 1.95
+  from the kept t 3.75 dump on 32 H200 (~1 x 4 h, ~130 H200-h, model).
