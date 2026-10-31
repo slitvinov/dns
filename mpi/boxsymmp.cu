@@ -12,6 +12,7 @@
    (circulation of omega_z through z = 0, x < 0, by Stokes from v on x = 0 and x = -pi), -c C (adaptive
    time step: dt = C / Courant rate at every diagnostic step, -s is the largest dt; -d -e -L -T are then times
    and q.STEP.t holds t), -S (all-to-all in float: x-, z-stage results rounded to fp32 before the exchange). */
+#include <cuda_fp16.h>
 #include <cufft.h>
 #include <fcntl.h>
 #include <math.h>
@@ -760,15 +761,9 @@ __global__ static void lwz2(G g, const double *dv, const double *du, double *wz2
   double w = dv[r] - du[r];
   wz2[l] = (k == 0 || k == g.Nz ? 1 : 2) * w * w;
 }
-/* lambda2 (as boxmp/lam2) */
-__global__ static void llam2(long n, Grad G_, float *lam) {
-  long l = blockIdx.x * (long)blockDim.x + threadIdx.x;
-  if (l >= n)
-    return;
-  double g_[3][3], s[3][3], o[3][3], M[3][3];
-  for (int i = 0; i < 3; i++)
-    for (int j = 0; j < 3; j++)
-      g_[i][j] = G_.g[i][j][l];
+/* lambda2 of the velocity gradient g_[i][j] = d_j u_i (as boxmp/lam2) */
+__device__ static double lam2of(const double g_[3][3]) {
+  double s[3][3], o[3][3], M[3][3];
   for (int i = 0; i < 3; i++)
     for (int j = 0; j < 3; j++) {
       s[i][j] = 0.5 * (g_[i][j] + g_[j][i]);
@@ -797,7 +792,33 @@ __global__ static void llam2(long n, Grad G_, float *lam) {
       M[b][c] = M[c][b] = si * mac + co * mbc;
     }
   double e0 = M[0][0], e1 = M[1][1], e2 = M[2][2];
-  lam[l] = (float)fmax(fmin(e0, e1), fmin(fmax(e0, e1), e2));
+  return fmax(fmin(e0, e1), fmin(fmax(e0, e1), e2));
+}
+__global__ static void llam2(long n, Grad G_, float *lam) {
+  long l = blockIdx.x * (long)blockDim.x + threadIdx.x;
+  if (l >= n)
+    return;
+  double g_[3][3];
+  for (int i = 0; i < 3; i++)
+    for (int j = 0; j < 3; j++)
+      g_[i][j] = G_.g[i][j][l];
+  lam[l] = (float)lam2of(g_);
+}
+/* -W snapshot: |w|, w_z, lambda2 / ls as half from the gradient planes i < ni of the slab ([i][kloc][j]), written
+   in the order [kloc][i][j] (z, x, y) */
+__global__ static void wsnap(long ni, long kc, long ny, Grad G_, double ls, __half *wa, __half *wz, __half *l2) {
+  long l = blockIdx.x * (long)blockDim.x + threadIdx.x;
+  if (l >= ni * kc * ny)
+    return;
+  long j = l % ny, k = l / ny % kc, i = l / ny / kc, o = (k * ni + i) * ny + j;
+  double g_[3][3];
+  for (int a = 0; a < 3; a++)
+    for (int b = 0; b < 3; b++)
+      g_[a][b] = G_.g[a][b][l];
+  double ox = g_[2][1] - g_[1][2], oy = g_[0][2] - g_[2][0], oz = g_[1][0] - g_[0][1];
+  wa[o] = __double2half(sqrt(ox * ox + oy * oy + oz * oz));
+  wz[o] = __double2half(oz);
+  l2[o] = __double2half(lam2of(g_) / ls);
 }
 /* x profile: w[i] = sum over the slab rows of plane i (m values each) */
 __global__ static void lsumx(long m, const double *wz2, double *w) {
@@ -926,6 +947,8 @@ int main(int argc, char **argv) {
   int L0start = 0; /* -0: lambda2 crop also at the restart step */
   int yao = 0, sflag = 0, kdump = 0; /* -I yao, -S, -k */
   long fg[3] = {0, 0, 0}; /* -G: grid of a k. restart file */
+  double Wt[64], HW = 1.5, dD = 0, dA = 0, dB = 0; /* -W snapshot times, -w half width in x, -D interval,from,to */
+  int nW = 0;
   double cfl = 0, dtmax, h, Gz = 0; /* -c */
   int dtknown = 0;
   char *tlist = NULL;
@@ -987,6 +1010,8 @@ int main(int argc, char **argv) {
                 "  -d -e -L -T are then times, q.STEP.t holds t)] [-S (all-to-all in float)]\n"
                 "  [-k (dumps are k.STEP: spectral, double complex [3][nx/2+1][nz/2+1][ny/2+1], unnormalized)]\n"
                 "  [-r k.STEP [-G nx,ny,nz (its grid if not this one: zero-padded, its Nyquist modes dropped)]]\n"
+                "  [-W t1,t2,... (with -c: snapshots w.STEP_{wabs,wz,lam2}.npy, half, [z][x][y] of the quarter, x < -w)]\n"
+                "  [-w <x half width, default 1.5>] [-D dt,t0,t1 (with -c: diagnostics also at t0 + k dt in [t0, t1])]\n"
                 "  = gpu/boxsym on P GPUs; input and dumps in q. format only (gpu/symq, gpu/symfull)\n"
                 "  all-to-all by NCCL; BOXSYM_MPI=1: CUDA-aware MPI_Alltoallv (allows several ranks per GPU)\n");
       MPI_Finalize();
@@ -1020,6 +1045,25 @@ int main(int argc, char **argv) {
     }
     if (argv[0][1] == 'T') {
       tlist = *++argv;
+      continue;
+    }
+    if (argv[0][1] == 'W') {
+      char *c = *++argv, *e;
+      for (;;) {
+        if (nW == 64)
+          fail("-W: at most 64 times%s%s", "", "");
+        Wt[nW++] = strtod(c, &e);
+        if (e == c || (*e != ',' && *e != '\0'))
+          fail("-W '%s' is not a list of times%s", *argv, "");
+        if (*e == '\0')
+          break;
+        c = e + 1;
+      }
+      continue;
+    }
+    if (argv[0][1] == 'D') {
+      if (sscanf(*++argv, "%lf,%lf,%lf", &dD, &dA, &dB) != 3 || dD <= 0)
+        fail("-D '%s': need interval,from,to%s", *argv, "");
       continue;
     }
     if (argv[0][1] == 'G') {
@@ -1084,6 +1128,9 @@ int main(int argc, char **argv) {
       break;
     case 'c':
       cfl = x;
+      break;
+    case 'w':
+      HW = x;
       break;
     default:
       fail("unknown option '%s'%s", *argv, "");
@@ -1392,6 +1439,17 @@ int main(int argc, char **argv) {
       lam = LL > 0 && MULT(t, LL) && t >= L0 - 1e-9;
     }
     dump = dump && (rpath == NULL || tstep != start);
+    int snap = 0;
+    if (cfl > 0) {
+      for (int q = 0; q < nW; q++)
+        if (fabs(t - Wt[q]) <= 1e-9 * fmax(1, t))
+          snap = rpath == NULL || tstep != start;
+      if (dD > 0 && t >= dA - 1e-9 * fmax(1, t) && t <= dB + 1e-9 * fmax(1, t)) {
+        double r_ = (t - dA) / dD;
+        if (fabs(r_ - nearbyint(r_)) * dD <= 1e-9 * fmax(1, t))
+          diag = 1;
+      }
+    }
     /* diagnostics on u^n: from the first RK stage's synthesis (fuse), or (dump, last step) a synthesis of their own */
     int fuse = diag && !dump && !last && !nofuse;
     auto diagnose = [&]() {
@@ -1583,6 +1641,94 @@ int main(int argc, char **argv) {
       }
       free(hE);
     }
+    if (snap) {
+      /* velocity gradient for the planes i <= imax (x <= HW) of every slab, as the lambda2 crop; then |w|, w_z,
+         lambda2 / 1000 as half in w.STEP_{wabs,wz,lam2}.npy, shape (nz/2+1, imax+1, ny), each rank one block */
+      double ts_ = MPI_Wtime(), dx_ = X * pi / nx, ls_ = 1000;
+      long ni = (long)(HW / dx_) + 1;
+      if (ni > g.X1)
+        ni = g.X1;
+      long nl = ni * g.kc * ny;
+      float *LG[3][3];
+      __half *wh;
+      for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++)
+          cuda(cudaMalloc(&LG[i][j], (nl > 0 ? nl : 1) * sizeof(float)), "cudaMalloc");
+      cuda(cudaMalloc(&wh, 3 * (nl > 0 ? nl : 1) * sizeof(__half)), "cudaMalloc");
+      for (int hh = 0; hh < 2; hh++) {
+        int m = hh == 0 ? 6 : 3, ox9[6], oz9[6];
+        for (int q = 0; q < m; q++) {
+          int ij = 6 * hh + q, i = ij / 3, j = ij % 3;
+          lderiv<<<grid(g.nf), nthread, 0, st>>>(g, j, u[i], b[q], s);
+          launched("lderiv");
+          ox9[q] = ux[i] ^ (j == 0);
+          oz9[q] = uz[i] ^ (j == 2);
+        }
+        synthesis(m, b, ox9, oz9);
+        for (int q = 0; q < m && nl > 0; q++) {
+          int ij = 6 * hh + q;
+          ltofloat<<<grid(nl), nthread, 0, st>>>(ni * g.kc, ny, g.Q, (double *)b[q], LG[ij / 3][ij % 3]);
+          launched("ltofloat");
+        }
+      }
+      Grad gg;
+      for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++)
+          gg.g[i][j] = LG[i][j];
+      if (nl > 0)
+        wsnap<<<grid(nl), nthread, 0, st>>>(ni, g.kc, ny, gg, ls_, wh, wh + nl, wh + 2 * nl);
+      launched("wsnap");
+      devsync();
+      __half *hh_ = (__half *)malloc(3 * (nl > 0 ? nl : 1) * sizeof(__half));
+      if (hh_ == NULL)
+        fail("malloc failed%s%s", "", "");
+      cuda(cudaMemcpy(hh_, wh, 3 * nl * sizeof(__half), cudaMemcpyDeviceToHost), "cudaMemcpy");
+      const char *nm_[3] = {"wabs", "wz", "lam2"};
+      char hd[128], shp[64], wp[FILENAME_MAX];
+      snprintf(shp, sizeof shp, "(%ld, %ld, %ld)", g.Z1, ni, ny);
+      int hn = npyhead(hd, "<f2", shp);
+      bad = 0;
+      for (int q = 0; q < 3; q++) {
+        sprintf(wp, "w.%08ld_%s.npy", tstep, nm_[q]);
+        if (rank == 0 && ((fd = open(wp, O_WRONLY | O_CREAT | O_TRUNC, 0644)) < 0 ||
+                          ftruncate(fd, (off_t)(hn + 2 * g.Z1 * ni * ny)) != 0 || rw(1, fd, hd, hn, 0) != 0 ||
+                          close(fd) != 0))
+          bad = 1;
+        if (any(bad))
+          fail("fail to write '%s'%s", wp, "");
+        if ((fd = open(wp, O_WRONLY)) < 0 ||
+            (nl > 0 && rw(1, fd, hh_ + q * nl, 2 * nl, (off_t)(hn + 2 * g.k0 * ni * ny)) != 0) || close(fd) != 0)
+          bad = 1;
+        if (any(bad))
+          fail("fail to write '%s'%s", wp, "");
+      }
+      if (rank == 0) {
+        FILE *fr;
+        sprintf(wp, "w.%08ld.txt", tstep);
+        if ((fr = fopen(wp, "w")) != NULL) {
+          fprintf(fr, "boxsymmp snapshot, step %ld, t = %.10g, t* = t Gamma0 / (2 pi b^2) = %.6f (b 1.62, Gamma0 7.680385)\n"
+                      "files w.%08ld_{wabs,wz,lam2}.npy: float16, shape (%ld, %ld, %ld), C order [k][i][j]\n"
+                      "  k: z = k dz, k = 0 .. nz/2 (z in [0, pi], the tube axis), dz = %.10g\n"
+                      "  i: x = i dx, i = 0 .. %ld (x in [0, %.6g]: collision normal, x = 0 is the collision plane), dx = %.10g\n"
+                      "  j: y = -pi + j dy, j = 0 .. ny - 1 (propagation direction), dy = %.10g\n"
+                      "wabs = |omega|; wz = omega_z (signed); lam2 = lambda2 / %g (lambda2 of S^2 + W^2, negative in vortex cores)\n"
+                      "Quarter of the full box: the full 2 pi box follows by the mirror symmetries\n"
+                      "  x -> -x: |w|, lambda2 even; omega_z odd (the tube at x < 0 has omega_z > 0)\n"
+                      "  z -> -z: |w|, lambda2, omega_z even\n"
+                      "grid %ld^3 (2 pi periodic), Re = Gamma0 / nu = %.6g\n",
+                  tstep, t, t * 7.680385244 / (2 * pi * 1.62 * 1.62), tstep, g.Z1, ni, ny, Z * pi / nz, ni - 1,
+                  (ni - 1) * dx_, dx_, Y * pi / ny, ls_, nx, 7.680385244 / nu);
+          fclose(fr);
+        }
+        fprintf(stderr, "boxsymmp: snapshot w.%08ld (%ld x %ld x %ld, 3 x %.2f GB) in %.1f s\n", tstep, g.Z1, ni, ny,
+                2e-9 * g.Z1 * ni * ny, MPI_Wtime() - ts_);
+      }
+      free(hh_);
+      for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++)
+          cuda(cudaFree(LG[i][j]), "cudaFree");
+      cuda(cudaFree(wh), "cudaFree");
+    }
     if (lam && (rpath == NULL || tstep != start || L0start)) {
       /* pair centre from the omega_z^2 profiles of the full box (omega_z = d_x v - d_y u synthesized on the
          slab), then the velocity gradient (9 syntheses through b) and lambda2 only for the planes
@@ -1751,6 +1897,11 @@ int main(int argc, char **argv) {
       for (long q = 0; q < nT; q++)
         if (Tt[q] > t + 1e-9 * fmax(1, t))
           te = fmin(te, Tt[q]);
+      for (int q = 0; q < nW; q++)
+        if (Wt[q] > t + 1e-9 * fmax(1, t))
+          te = fmin(te, Wt[q]);
+      if (dD > 0 && t < dB - 1e-9 * fmax(1, t))
+        te = fmin(te, t < dA - 1e-9 * fmax(1, t) ? dA : dA + (floor((t - dA) / dD + 1e-9) + 1) * dD);
       if (te - t <= h * (1 + 1e-9)) {
         h = te - t;
         land = 1;

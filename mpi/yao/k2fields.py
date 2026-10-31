@@ -1,5 +1,6 @@
 # k2fields.py k.STEP n m outprefix [q.STEP]: full 2 pi box fields from a boxsymmp k. dump (quarter box, grid n^3), spectrally
-# truncated to m^3 (modes |p|, |q|, |r| < m/2 kept): writes outprefix_wabs.npy and outprefix_wz.npy, float16, shape (m, m, m),
+# truncated to m^3 (modes |p|, |q|, |r| < m/2 kept): writes outprefix_wabs.npy, outprefix_wz.npy and outprefix_lam2.npy
+# (lambda2 of S^2 + W^2 divided by 1000, negative in vortex cores), float16, shape (m, m, m),
 # index order [i][j][k] = (x, y, z), x_i = -pi + i 2pi/m (same for y, z): x collision normal, y propagation, z tube axis.
 # With q.STEP (and m = n) it also checks the velocity against the physical dump.
 import sys, numpy as np
@@ -25,13 +26,21 @@ if len(sys.argv) > 5:
     for c in range(3):
         f = inv(U[c])                                          # f[x][z][y]
         print("u%d max|recon - q| / max|q| on the quarter: %.2e" % (c, np.abs(f[M:, M:, :] - q[c][:M, :M, :]).max() / np.abs(q[c]).max()))
-wx = 1j * (ky * U[2] - kz * U[1]); wy = 1j * (kz * U[0] - kx * U[2]); wz = 1j * (kx * U[1] - ky * U[0])
+kk = (kx, ky, kz)
+G = [[None] * 3 for _ in range(3)]                       # G[a][b] = d_b u_a, physical [x][z][y]
+for a in range(3):
+    for b in range(3):
+        G[a][b] = inv(1j * kk[b] * U[a])
 del U
-fz = inv(wz); del wz
-fa = fz ** 2
-fa += inv(wx) ** 2; del wx
-fa += inv(wy) ** 2; del wy
-fa = np.sqrt(fa)
-print("%s: max|w| %.6g, max w_z %.6g, min w_z %.6g, <|w|^2>/2 %.8g" % (kf, fa.max(), fz.max(), fz.min(), 0.5 * (fa ** 2).mean()))
+ox = G[2][1] - G[1][2]; oy = G[0][2] - G[2][0]; fz = G[1][0] - G[0][1]
+fa = np.sqrt(ox ** 2 + oy ** 2 + fz ** 2); del ox, oy
+l2 = np.empty(fa.shape)
+for i in range(m):                                       # lambda2 plane by plane
+    g_ = np.stack([np.stack([G[a][b][i] for b in range(3)], -1) for a in range(3)], -2)   # [z][y][a][b]
+    S = 0.5 * (g_ + np.swapaxes(g_, -1, -2)); W = 0.5 * (g_ - np.swapaxes(g_, -1, -2))
+    l2[i] = np.linalg.eigvalsh(S @ S + W @ W)[..., 1]
+del G
+print("%s: max|w| %.6g, max w_z %.6g, min w_z %.6g, <|w|^2>/2 %.8g, min lambda2 %.6g" % (kf, fa.max(), fz.max(), fz.min(), 0.5 * (fa ** 2).mean(), l2.min()))
 np.save(out + "_wabs.npy", fa.transpose(0, 2, 1).astype(np.float16))   # [x][z][y] -> [x][y][z]
 np.save(out + "_wz.npy", fz.transpose(0, 2, 1).astype(np.float16))
+np.save(out + "_lam2.npy", (l2 / 1000).transpose(0, 2, 1).astype(np.float16))

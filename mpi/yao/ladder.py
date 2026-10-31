@@ -20,3 +20,25 @@ for f in sys.argv[1:]:
 ref = R[-1]
 for r in R[:-1]:
     print("%s vs %s: Omega peak %+.2f%%, |w| peak %+.1f%%" % (r[0], ref[0], 100 * (r[1] / ref[1] - 1), 100 * (r[3] / ref[3] - 1)))
+# extrapolation of the peaks when exactly three rungs on an equally spaced n ladder are given (e.g. 2048, 2560, 3072):
+# Aitken delta^2 (exact for geometric = spectral convergence in n) and the algebraic fit phi = phi_inf + A n^-p;
+# error bar = the larger of |phi_inf(Aitken) - phi_inf(algebraic)| and |phi(finest) - phi_inf(Aitken)| / 2
+if len(R) == 3:
+    import re
+    ns = [int(re.findall(r'(\d{3,4})', r[0])[-1]) for r in R]
+    for name, j in (('Omega/Omega0 peak', 1), ('|w| ratio peak', 3)):
+        f1, f2, f3 = (r[j] for r in R)
+        d1, d2 = f2 - f1, f3 - f2
+        ait = f3 - d2 * d2 / (d2 - d1) if d2 != d1 else f3
+        s = "%s: %s -> " % (name, " / ".join("%.4g" % f for f in (f1, f2, f3)))
+        alg = None
+        if d1 * d2 > 0 and abs(d2) < abs(d1):
+            from scipy.optimize import brentq
+            g = lambda p: (ns[1] ** -p - ns[2] ** -p) / (ns[0] ** -p - ns[1] ** -p) - d2 / d1
+            try:
+                p = brentq(g, 0.05, 40); A = d1 / (ns[1] ** -p - ns[0] ** -p); alg = f3 - A * ns[2] ** -p
+                s += "algebraic p %.2f: %.4g; " % (p, alg)
+            except ValueError:
+                pass
+        err = max(abs(f3 - ait) / 2, abs(ait - alg) if alg is not None else abs(f3 - ait))
+        print(s + "Aitken %.4g +- %.2g (finest grid %.2f%% from it)" % (ait, err, 100 * (f3 / ait - 1)))
