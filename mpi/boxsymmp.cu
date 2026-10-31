@@ -43,6 +43,7 @@ struct G {
   double ax, ay, az;
   int f;
   double fp;
+  const double *mfx, *mfy, *mfz; /* mask (filter or 2/3 rule) = mfx[p] mfy[q] mfz[r] */
 };
 static G g;
 static int rank, size;
@@ -56,6 +57,8 @@ static int lowp; /* -S: the all-to-all buffers hold float2 (set only around the 
 static int syn6; /* BOXSYM_SYN6=1: RK stages synthesize u and omega by six exchanges (the old path) */
 static int nocomm; /* BOXSYM_NOCOMM=1 (timing only): the exchanges are skipped, results are garbage */
 static int nofuse; /* BOXSYM_NOFUSE=1: diagnostics from a synthesis of their own (the old way) */
+static int nl; /* nl_a/nl_b stage (needs b[6]) */
+static int selfx = 1; /* the folds write the own part of an exchange directly (BOXSYM_SELFCOPY=1: copy instead) */
 static cudaStream_t st, sc; /* compute, all-to-all */
 static cudaEvent_t ev[4][8];   /* pipeline events: [kind][field] */
 static void fail(const char *fmt, const char *a, const char *b) {
@@ -96,7 +99,7 @@ static void a2a(const void *sb_, const int *nsend, const int *sd, void *rb_, con
   }
   if (nocomm)
     return;
-  if (rc[rank] > 0)
+  if (rc[rank] > 0 && !selfx)
     cuda(cudaMemcpyAsync(rb + rd[rank] * es, sb + sd[rank] * es, rc[rank] * es,
                          cudaMemcpyDeviceToDevice, sc),
          "cudaMemcpyAsync");
@@ -123,13 +126,6 @@ __device__ static void mode(G g, long l, long *p, long *q, long *r, double *kx,
   *kx = g.ax * *p;
   *ky = g.ay * *q;
   *kz = g.az * *r;
-}
-__device__ static double mask(G g, long p, long q, long r) {
-  if (g.f) {
-    double x = 2.0 * p / g.nx, y = 2.0 * q / g.ny, z = 2.0 * r / g.nz;
-    return exp(-36 * (pow(x, 36) + pow(y, 36) + pow(z, 36)));
-  }
-  return 3 * p < g.nx && 3 * q < g.ny && 3 * r < g.nz;
 }
 /* parity extension of n/2+1 values to a full period n, the same map for spectral (F(-p) = +-F(p)) and
    physical (u(-x) = +-u(x)) lines (odd lines vanish at 0 and n/2), fused with a transpose so that the
@@ -166,7 +162,10 @@ template <class In> __global__ static void extx(long n, int odd, long M, const I
       R[b * n + m] = t[x][j];
   }
 }
-template <class Out> __global__ static void foldx(long n, long M, const double2 *R, Out *a) {
+/* fold* write the own rank's part straight into the receive buffer (self, rows sp0 .. sp0 + spc - 1 of the
+   fold output for foldx, section srank for foldz), so the exchange skips its local copy */
+template <class Out>
+__global__ static void foldx(long n, long M, const double2 *R, Out *a, Out *self, long sp0, long spc) {
   __shared__ double2 t[TL][TL + 1];
   long b0 = blockIdx.x * (long)TL, p0 = blockIdx.y * (long)TL, N1 = n / 2 + 1;
   int x = threadIdx.x, y = threadIdx.y;
@@ -178,8 +177,12 @@ template <class Out> __global__ static void foldx(long n, long M, const double2 
   __syncthreads();
   for (int j = y; j < TL; j += TR) {
     long p = p0 + j, b = b0 + x;
-    if (p < N1 && b < M)
-      st2(a, p * M + b, t[x][j]);
+    if (p < N1 && b < M) {
+      if (self != NULL && p >= sp0 && p < sp0 + spc)
+        st2(self, (p - sp0) * M + b, t[x][j]);
+      else
+        st2(a, p * M + b, t[x][j]);
+    }
   }
 }
 template <class In>
@@ -202,7 +205,8 @@ __global__ static void extz(long n, int odd, long Q, long Z1, long pc, long S, c
   }
 }
 template <class Out>
-__global__ static void foldz(long n, long Q, long Z1, long pc, long S, const double2 *R, Out *a) {
+__global__ static void foldz(long n, long Q, long Z1, long pc, long S, const double2 *R, Out *a, Out *self,
+                             long srank) {
   __shared__ double2 t[TL][TL + 1];
   long q0 = blockIdx.x * (long)TL, k0 = blockIdx.y * (long)TL, pl = blockIdx.z;
   int x = threadIdx.x, y = threadIdx.y;
@@ -214,8 +218,13 @@ __global__ static void foldz(long n, long Q, long Z1, long pc, long S, const dou
   __syncthreads();
   for (int j = y; j < TL; j += TR) {
     long k = k0 + j, q = q0 + x;
-    if (k < Z1 && q < Q)
-      st2(a, zrow(Z1, S, pc, Q, pl, k) + q, t[x][j]);
+    if (k < Z1 && q < Q) {
+      long s = ((k + 1) * S - 1) / Z1, r0 = Z1 * s / S, cnt = Z1 * (s + 1) / S - r0;
+      if (self != NULL && s == srank)
+        st2(self, (pl * cnt + k - r0) * Q + q, t[x][j]);
+      else
+        st2(a, pc * r0 * Q + (pl * cnt + k - r0) * Q + q, t[x][j]);
+    }
   }
 }
 static dim3 tiles(long a, long b, long c) { return dim3((a + TL - 1) / TL, (b + TL - 1) / TL, c); }
@@ -223,22 +232,29 @@ static void rec(int k, int c, cudaStream_t s) { cuda(cudaEventRecord(ev[k][c], s
 static void waitev(cudaStream_t s, int k, int c) {
   cuda(cudaStreamWaitEvent(s, ev[k][c], 0), "cudaStreamWaitEvent");
 }
+/* exchange buffers: a ring of 2 (double, T[0], T[1]) or, with -S, of 4 (float halves of T[0], T[1]) */
+static int nring(void) { return lowp ? 4 : 2; }
+static void *tb(int s) {
+  return lowp ? (void *)((float2 *)T[s % 4 / 2] + s % 2 * g.nf) : (void *)T[s % 2];
+}
 /* z-stage of field a (z parity oz) and its all-to-all; s = sequence number of the exchange in this synthesis
-   (events [k][s], send buffer T[s % 2]). Events: 0 compute side done with T[s % 2], 1 all-to-all s done. */
+   (events [k][s], send buffer tb(s)). Events: 0 compute side done with tb(s), 1 all-to-all s done. */
 static void zsend(int s, double2 *a, int oz) {
   extz<<<tiles(g.Q, g.nz, g.pc), dim3(TL, TR), 0, st>>>(g.nz, oz, g.Q, g.Z1, g.pc, 1, (const double2 *)a, R);
   launched("extz");
   cufft(cufftExecZ2Z(pz, R, R, CUFFT_INVERSE), "cufftExecZ2Z");
-  if (s >= 2)
-    waitev(st, 1, s - 2);
+  if (s >= nring())
+    waitev(st, 1, s - nring());
   if (lowp)
-    foldz<<<tiles(g.Q, g.Z1, g.pc), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, size, R, (float2 *)T[s % 2]);
+    foldz<<<tiles(g.Q, g.Z1, g.pc), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, size, R, (float2 *)tb(s),
+                                                           selfx ? (float2 *)a + rdz[rank] : NULL, rank);
   else
-    foldz<<<tiles(g.Q, g.Z1, g.pc), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, size, R, T[s % 2]);
+    foldz<<<tiles(g.Q, g.Z1, g.pc), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, size, R, T[s % 2],
+                                                           selfx ? a + rdz[rank] : NULL, rank);
   launched("foldz");
   rec(0, s, st);
   waitev(sc, 0, s);
-  a2a(T[s % 2], scz, sdz, a, rcz, rdz);
+  a2a(tb(s), scz, sdz, a, rcz, rdz);
   rec(1, s, sc);
 }
 /* x-stage and y C2R of a received field (x parity ox) */
@@ -249,7 +265,7 @@ static void xstage(double2 *a, int ox) {
     extx<<<tiles(g.kc * g.Q, g.nx, 1), dim3(TL, TR), 0, st>>>(g.nx, ox, g.kc * g.Q, (const double2 *)a, R);
   launched("extx");
   cufft(cufftExecZ2Z(px, R, R, CUFFT_INVERSE), "cufftExecZ2Z");
-  foldx<<<tiles(g.kc * g.Q, g.X1, 1), dim3(TL, TR), 0, st>>>(g.nx, g.kc * g.Q, R, a);
+  foldx<<<tiles(g.kc * g.Q, g.X1, 1), dim3(TL, TR), 0, st>>>(g.nx, g.kc * g.Q, R, a, (double2 *)NULL, 0, 0);
   launched("foldx");
   cufft(cufftExecZ2D(py[1], a, (double *)a), "cufftExecZ2D");
 }
@@ -265,90 +281,137 @@ static void synthesis(int n, double2 **a, const int *ox, const int *oz) {
     }
   }
 }
-/* vorticity in the mixed layout after the exchange ([p][kloc][q]: x, y spectral, z physical):
-   which 0: c = omega_z = i kx v - i ky u (a = u, b = v); 1: c = omega_x = i ky w - c (a = w, c = d_z v in);
-   2: c = omega_y = c - i kx w (a = w, c = d_z u in) */
-template <class E> __global__ static void vortm(G g, int which, const E *a, const E *b, E *c) {
+/* omega_z = i kx v - i ky u in the mixed layout after the exchange ([p][kloc][q]: x, y spectral, z physical) */
+template <class E> __global__ static void vortm(G g, const E *a, const E *b, E *c) {
   long l = blockIdx.x * (long)blockDim.x + threadIdx.x;
   if (l >= g.X1 * g.kc * g.Q)
     return;
   double kx = g.ax * (l / (g.kc * g.Q)), ky = g.ay * (l % g.Q);
-  double2 A = ld2(a, l), C;
-  if (which == 0) {
-    double2 B = ld2(b, l);
-    C = make_double2(-(kx * B.y - ky * A.y), kx * B.x - ky * A.x);
-  } else {
-    C = ld2(c, l);
-    C = which == 1 ? make_double2(-ky * A.y - C.x, ky * A.x - C.y) : make_double2(C.x + kx * A.y, C.y - kx * A.x);
-  }
-  st2(c, l, C);
+  double2 A = ld2(a, l), B = ld2(b, l);
+  st2(c, l, make_double2(-(kx * B.y - ky * A.y), kx * B.x - ky * A.x));
 }
-static void vort(int which, double2 *a, double2 *b, double2 *c) {
+static void vortz(double2 *a, double2 *b, double2 *c) {
   if (lowp)
-    vortm<<<grid(g.X1 * g.kc * g.Q), nthread, 0, st>>>(g, which, (const float2 *)a, (const float2 *)b, (float2 *)c);
+    vortm<<<grid(g.X1 * g.kc * g.Q), nthread, 0, st>>>(g, (const float2 *)a, (const float2 *)b, (float2 *)c);
   else
-    vortm<<<grid(g.X1 * g.kc * g.Q), nthread, 0, st>>>(g, which, (const double2 *)a, (const double2 *)b, c);
+    vortm<<<grid(g.X1 * g.kc * g.Q), nthread, 0, st>>>(g, (const double2 *)a, (const double2 *)b, c);
   launched("vortm");
 }
-/* u, omega on the physical slab from five exchanges: b0..b2 = u, v, w, b3 = d_z v, b4 = d_z u (spectral, from
-   spread5); omega_x, omega_y, omega_z are formed in the mixed layout (b3, b4, b5). Order u, v, d_z v, w, d_z u. */
+/* u, omega on the physical slab from five exchanges: b0..b4 = u, v, w, omega_x, omega_y (spectral, spread5);
+   omega_z = d_x v - d_y u is formed in the mixed layout once u and v have arrived (b5). The last field to
+   arrive needs only its own x-stage. */
 static void synth5(double2 **b) {
-  zsend(0, b[0], uz[0]);
-  zsend(1, b[1], uz[1]);
-  zsend(2, b[3], 1);
+  for (int c = 0; c < 4; c++)
+    zsend(c, b[c], oz6[c]);
   waitev(st, 1, 0);
   waitev(st, 1, 1);
-  vort(0, b[0], b[1], b[5]);
-  xstage(b[0], ux[0]);
-  xstage(b[1], ux[1]);
+  vortz(b[0], b[1], b[5]);
+  xstage(b[0], ox6[0]);
+  xstage(b[1], ox6[1]);
+  zsend(4, b[4], oz6[4]);
   xstage(b[5], ox6[5]);
-  zsend(3, b[2], uz[2]);
-  zsend(4, b[4], 1);
-  waitev(st, 1, 2);
-  waitev(st, 1, 3);
-  vort(1, b[2], NULL, b[3]);
-  xstage(b[3], ox6[3]);
-  waitev(st, 1, 4);
-  vort(2, b[2], NULL, b[4]);
-  xstage(b[4], ox6[4]);
-  xstage(b[2], ux[2]);
+  for (int c = 2; c < 5; c++) {
+    waitev(st, 1, c);
+    xstage(b[c], ox6[c]);
+  }
+}
+/* analysis pieces. asend: y R2C, x-stage of field a (x parity ox), its exchange into tb(s) (s = sequence number,
+   events [k][s]); azstage: z-stage of the received field s into a (z parity oz). Event 2: tb(s) read, free again. */
+static void asend(int s, double2 *a, int ox) {
+  cufft(cufftExecD2Z(py[0], (double *)a, a), "cufftExecD2Z");
+  extx<<<tiles(g.kc * g.Q, g.nx, 1), dim3(TL, TR), 0, st>>>(g.nx, ox, g.kc * g.Q, (const double2 *)a, R);
+  launched("extx");
+  cufft(cufftExecZ2Z(px, R, R, CUFFT_FORWARD), "cufftExecZ2Z");
+  if (lowp)
+    foldx<<<tiles(g.kc * g.Q, g.X1, 1), dim3(TL, TR), 0, st>>>(g.nx, g.kc * g.Q, R, (float2 *)a,
+                                                               selfx ? (float2 *)tb(s) + sdz[rank] : NULL, g.p0, g.pc);
+  else
+    foldx<<<tiles(g.kc * g.Q, g.X1, 1), dim3(TL, TR), 0, st>>>(g.nx, g.kc * g.Q, R, a,
+                                                               selfx ? (double2 *)tb(s) + sdz[rank] : NULL, g.p0, g.pc);
+  launched("foldx");
+  rec(0, s, st);
+  waitev(sc, 0, s);
+  a2a(a, rcz, rdz, tb(s), scz, sdz);
+  rec(1, s, sc);
+}
+static void azstage(int s, double2 *a, int oz) {
+  waitev(st, 1, s);
+  if (lowp)
+    extz<<<tiles(g.Q, g.nz, g.pc), dim3(TL, TR), 0, st>>>(g.nz, oz, g.Q, g.Z1, g.pc, size, (const float2 *)tb(s), R);
+  else
+    extz<<<tiles(g.Q, g.nz, g.pc), dim3(TL, TR), 0, st>>>(g.nz, oz, g.Q, g.Z1, g.pc, size, (const double2 *)tb(s), R);
+  launched("extz");
+  rec(2, s, st);
+  cufft(cufftExecZ2Z(pz, R, R, CUFFT_FORWARD), "cufftExecZ2Z");
+  foldz<<<tiles(g.Q, g.Z1, g.pc), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, 1, R, a, (double2 *)NULL, 0);
+  launched("foldz");
 }
 static void analysis(int n, double2 **a, const int *ox, const int *oz) {
   for (int c = 0; c <= n; c++) {
     if (c < n) {
-      cufft(cufftExecD2Z(py[0], (double *)a[c], a[c]), "cufftExecD2Z");
-      extx<<<tiles(g.kc * g.Q, g.nx, 1), dim3(TL, TR), 0, st>>>(g.nx, ox[c], g.kc * g.Q,
-                                                                (const double2 *)a[c], R);
-      launched("extx");
-      cufft(cufftExecZ2Z(px, R, R, CUFFT_FORWARD), "cufftExecZ2Z");
-      if (lowp)
-        foldx<<<tiles(g.kc * g.Q, g.X1, 1), dim3(TL, TR), 0, st>>>(g.nx, g.kc * g.Q, R, (float2 *)a[c]);
-      else
-        foldx<<<tiles(g.kc * g.Q, g.X1, 1), dim3(TL, TR), 0, st>>>(g.nx, g.kc * g.Q, R, a[c]);
-      launched("foldx");
-      rec(0, c, st);
-      waitev(sc, 0, c);
-      if (c >= 2)
-        waitev(sc, 2, c - 2);
-      a2a(a[c], rcz, rdz, T[c % 2], scz, sdz);
-      rec(1, c, sc);
+      if (c >= nring())
+        waitev(sc, 2, c - nring());
+      asend(c, a[c], ox[c]);
     }
-    if (c >= 1) {
-      int d = c - 1;
-      waitev(st, 1, d);
-      if (lowp)
-        extz<<<tiles(g.Q, g.nz, g.pc), dim3(TL, TR), 0, st>>>(g.nz, oz[d], g.Q, g.Z1, g.pc, size,
-                                                              (const float2 *)T[d % 2], R);
-      else
-        extz<<<tiles(g.Q, g.nz, g.pc), dim3(TL, TR), 0, st>>>(g.nz, oz[d], g.Q, g.Z1, g.pc, size,
-                                                              (const double2 *)T[d % 2], R);
-      launched("extz");
-      rec(2, d, st);
-      cufft(cufftExecZ2Z(pz, R, R, CUFFT_FORWARD), "cufftExecZ2Z");
-      foldz<<<tiles(g.Q, g.Z1, g.pc), dim3(TL, TR), 0, st>>>(g.nz, g.Q, g.Z1, g.pc, 1, R, a[d]);
-      launched("foldz");
-    }
+    if (c >= 1)
+      azstage(c - 1, a[c - 1], oz[c - 1]);
   }
+}
+/* N_x = s^2 (v omega_z - w omega_y) into n0 (physical slab) */
+__global__ static void cross0(G g, double s, const double *v, const double *w, const double *oy, const double *oz,
+                              double *n0) {
+  long l = blockIdx.x * (long)blockDim.x + threadIdx.x;
+  if (l >= g.nr || l % (2 * g.Q) >= g.ny)
+    return;
+  n0[l] = s * s * (v[l] * oz[l] - w[l] * oy[l]);
+}
+/* N_y = s^2 (w omega_x - u omega_z) into b0, N_z = s^2 (u omega_y - v omega_x) into b1 */
+__global__ static void cross12(G g, double s, double *b0, double *b1, const double *b2, const double *b3,
+                               const double *b4, const double *b5) {
+  long l = blockIdx.x * (long)blockDim.x + threadIdx.x;
+  if (l >= g.nr || l % (2 * g.Q) >= g.ny)
+    return;
+  double u = b0[l], v = b1[l], w = b2[l], p = b3[l], q = b4[l], r = b5[l];
+  b0[l] = s * s * (w * p - u * r);
+  b1[l] = s * s * (u * q - v * p);
+}
+/* the nonlinear term of an RK stage with N_x started before omega_x has arrived: b0..b4 = u, v, w, omega_x,
+   omega_y spectral (spread5) -> exchanges u, v, w, omega_y, omega_x (seq 0-4), omega_z formed after u, v;
+   N_x into b6 and its exchange (seq 5) as soon as v, w, omega_y, omega_z are physical; nl_a ends with all six
+   fields physical (b0..b5: diagnostics may run here); nl_b leaves N spectral in b6, b0, b1. */
+static void nl_a(double2 **b, double s) {
+  const int o[4] = {0, 1, 2, 4};
+  for (int c = 0; c < 4; c++)
+    zsend(c, b[o[c]], oz6[o[c]]);
+  waitev(st, 1, 0);
+  waitev(st, 1, 1);
+  vortz(b[0], b[1], b[5]);
+  xstage(b[0], ox6[0]);
+  xstage(b[1], ox6[1]);
+  zsend(4, b[3], oz6[3]);
+  xstage(b[5], ox6[5]);
+  waitev(st, 1, 2);
+  xstage(b[2], ox6[2]);
+  waitev(st, 1, 3);
+  xstage(b[4], ox6[4]);
+  cross0<<<grid(g.nr), nthread, 0, st>>>(g, s, (double *)b[1], (double *)b[2], (double *)b[4], (double *)b[5],
+                                         (double *)b[6]);
+  launched("cross0");
+  asend(5, b[6], ux[0]);
+  waitev(st, 1, 4);
+  xstage(b[3], ox6[3]);
+}
+static void nl_b(double2 **b, double s) {
+  cross12<<<grid(g.nr), nthread, 0, st>>>(g, s, (double *)b[0], (double *)b[1], (double *)b[2], (double *)b[3],
+                                          (double *)b[4], (double *)b[5]);
+  launched("cross12");
+  asend(6, b[0], ux[1]);
+  azstage(5, b[6], uz[0]);
+  if (7 - 5 >= nring())
+    waitev(sc, 2, 5);
+  asend(7, b[1], ux[2]);
+  azstage(6, b[0], uz[1]);
+  azstage(7, b[1], uz[2]);
 }
 __global__ static void spread(G g, const double2 *u, const double2 *v,
                               const double2 *w, double2 *b0, double2 *b1,
@@ -367,7 +430,7 @@ __global__ static void spread(G g, const double2 *u, const double2 *v,
   b4[l] = make_double2(-(kz * a.y - kx * c.y), kz * a.x - kx * c.x);
   b5[l] = make_double2(-(kx * b.y - ky * a.y), kx * b.x - ky * a.x);
 }
-/* spectral inputs of synth5: u, v, w, d_z v, d_z u */
+/* spectral inputs of synth5: u, v, w, omega_x, omega_y (as spread) */
 __global__ static void spread5(G g, const double2 *u, const double2 *v, const double2 *w, double2 *b0, double2 *b1,
                                double2 *b2, double2 *b3, double2 *b4) {
   long l = blockIdx.x * (long)blockDim.x + threadIdx.x, i, j, k;
@@ -375,12 +438,12 @@ __global__ static void spread5(G g, const double2 *u, const double2 *v, const do
   if (l >= g.nf)
     return;
   mode(g, l, &i, &j, &k, &kx, &ky, &kz);
-  double2 a = u[l], b = v[l];
+  double2 a = u[l], b = v[l], c = w[l];
   b0[l] = a;
   b1[l] = b;
-  b2[l] = w[l];
-  b3[l] = make_double2(-kz * b.y, kz * b.x);
-  b4[l] = make_double2(-kz * a.y, kz * a.x);
+  b2[l] = c;
+  b3[l] = make_double2(-(ky * c.y - kz * b.y), ky * c.x - kz * b.x);
+  b4[l] = make_double2(-(kz * a.y - kx * c.y), kz * a.x - kx * c.x);
 }
 __global__ static void cross(G g, double s, double *b0, double *b1, double *b2,
                              const double *b3, const double *b4,
@@ -404,7 +467,7 @@ __global__ static void update(G g, int last, double nu, double dt, double a, dou
   if (l >= g.nf)
     return;
   mode(g, l, &i, &j, &k, &kx, &ky, &kz);
-  double kk = kx * kx + ky * ky + kz * kz, m = mask(g, i, j, k), visc = nu * kk;
+  double kk = kx * kx + ky * ky + kz * kz, m = g.mfx[i] * g.mfy[j] * g.mfz[k], visc = nu * kk;
   /* modes that do not exist for an odd component (sin 0, sin N) */
   double ex = i == 0 || i == g.Nx ? 0 : 1, ez = k == 0 || k == g.Nz ? 0 : 1;
   double2 x = f0[l], y = f1[l], z = f2[l], p;
@@ -805,7 +868,7 @@ int main(int argc, char **argv) {
   long ne, nL, nT = 0, *Ts = NULL;
   double nu, dt, T_, t, dd, F, X, Y, Z, x, N, s, cx, cy, cz, kc, sums[6], mx[2],
       *host, *dP, *P, t0, t1, tio;
-  double2 *u[3], *du[3], *b[6];
+  double2 *u[3], *du[3], *b[7];
   long tstep, start, nd, nx, ny, nz, nt, nloc, nb, nR;
   size_t ws, fr, tot;
   void *work;
@@ -827,6 +890,7 @@ int main(int argc, char **argv) {
   syn6 = getenv("BOXSYM_SYN6") != NULL && atoi(getenv("BOXSYM_SYN6")) != 0;
   nocomm = getenv("BOXSYM_NOCOMM") != NULL && atoi(getenv("BOXSYM_NOCOMM")) != 0;
   nofuse = getenv("BOXSYM_NOFUSE") != NULL && atoi(getenv("BOXSYM_NOFUSE")) != 0;
+  selfx = !usempi && !(getenv("BOXSYM_SELFCOPY") != NULL && atoi(getenv("BOXSYM_SELFCOPY")) != 0);
   MPI_Type_contiguous(2, MPI_DOUBLE, &cplx);
   MPI_Type_commit(&cplx);
   MPI_Type_contiguous(2, MPI_FLOAT, &cplxf);
@@ -1043,10 +1107,37 @@ int main(int argc, char **argv) {
   }
   for (int c = 0; c < 6; c++)
     cuda(cudaMalloc(&b[c], nb * sizeof(double2)), "cudaMalloc");
+  /* b[6] (N_x of nl_a/nl_b, one more field); without it (BOXSYM_NL=0 or no memory) the stage is synth5, cross,
+     analysis */
+  nl = !(getenv("BOXSYM_NL") != NULL && atoi(getenv("BOXSYM_NL")) == 0);
+  if (nl && cudaMalloc(&b[6], nb * sizeof(double2)) != cudaSuccess) {
+    cudaGetLastError();
+    nl = 0;
+  }
+  if (!nl)
+    b[6] = NULL;
   cuda(cudaMalloc(&R, nR * sizeof(double2)), "cudaMalloc");
   for (int q = 0; q < 2; q++)
     cuda(cudaMalloc(&T[q], g.nf * sizeof(double2)), "cudaMalloc");
   cuda(cudaMalloc(&dP, 6 * nblock * sizeof(double)), "cudaMalloc");
+  {
+    /* the separable mask, as mask(): exp(-36 (2p/nx)^36) per direction (-f) or 3p < nx */
+    long nm = g.X1 + g.Q + g.Z1;
+    double *hm = (double *)malloc(nm * sizeof(double)), *dm;
+    if (hm == NULL)
+      fail("malloc failed%s%s", "", "");
+    for (long l = 0; l < nm; l++) {
+      long p = l < g.X1 ? l : l < g.X1 + g.Q ? l - g.X1 : l - g.X1 - g.Q, n = l < g.X1 ? nx : l < g.X1 + g.Q ? ny : nz;
+      double x = 2.0 * p / n;
+      hm[l] = g.f ? exp(-36 * pow(x, 36)) : 3 * p < n;
+    }
+    cuda(cudaMalloc(&dm, nm * sizeof(double)), "cudaMalloc");
+    cuda(cudaMemcpy(dm, hm, nm * sizeof(double), cudaMemcpyHostToDevice), "cudaMemcpy");
+    free(hm);
+    g.mfx = dm;
+    g.mfy = dm + g.X1;
+    g.mfz = dm + g.X1 + g.Q;
+  }
   if ((P = (double *)malloc(6 * nblock * sizeof(double))) == NULL ||
       (host = (double *)malloc(nloc * sizeof(double))) == NULL)
     fail("malloc failed%s%s", "", "");
@@ -1067,7 +1158,7 @@ int main(int argc, char **argv) {
           "boxsymmp: rank %d/%d %s gpu %d: p %ld+%ld k %ld+%ld, fields %.3f GB, R+T %.3f GB, "
           "work %.3f GB, gpu used %.3f GB\n",
           rank, size, host_name, local % ndev, g.p0, g.pc, g.k0, g.kc,
-          (6 * nb + 6 * g.nf) * sizeof(double2) / 1e9, (nR + 2 * g.nf) * sizeof(double2) / 1e9,
+          ((6 + nl) * nb + 6 * g.nf) * sizeof(double2) / 1e9, (nR + 2 * g.nf) * sizeof(double2) / 1e9,
           ws / 1e9, (tot - fr) / 1e9);
   tstep = 0;
   name = ipath;
@@ -1172,9 +1263,9 @@ int main(int argc, char **argv) {
       }
       for (int r = 0; r < 5; r++) {
         for (int c = 0; c < ns; c++)
-          a2a(T[c % 2], scz, sdz, b[c], rcz, rdz);
+          a2a(tb(c), scz, sdz, b[c], rcz, rdz);
         for (int c = 0; c < 3; c++)
-          a2a(b[c], rcz, rdz, T[c % 2], scz, sdz);
+          a2a(b[c], rcz, rdz, tb(c), scz, sdz);
       }
     }
     cuda(cudaStreamSynchronize(sc), "cudaStreamSynchronize");
@@ -1583,11 +1674,21 @@ int main(int argc, char **argv) {
       } else {
         spread5<<<grid(g.nf), nthread, 0, st>>>(g, u[0], u[1], u[2], b[0], b[1], b[2], b[3], b[4]);
         launched("spread5");
-        synth5(b);
+        if (nl)
+          nl_a(b, s);
+        else
+          synth5(b);
       }
       if (r == 0 && fuse) {
         diagnose();
         steph();
+      }
+      if (nl && !syn6) {
+        nl_b(b, s);
+        update<<<grid(g.nf), nthread, 0, st>>>(g, r == 4, nu, h, A[r], B[r], b[6], b[0], b[1], u[0], u[1], u[2],
+                                               du[0], du[1], du[2]);
+        launched("update");
+        continue;
       }
       cross<<<grid(g.nr), nthread, 0, st>>>(g, s, (double *)b[0], (double *)b[1], (double *)b[2],
                                      (double *)b[3], (double *)b[4], (double *)b[5]);
