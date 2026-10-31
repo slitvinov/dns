@@ -196,3 +196,14 @@ P2. As launched (2026-10-31 ~14:55 EDT; scripts in mpi/yao/fasrc, netscratch ysp
   start of a 4096 window if the ladder asks for it). Peak netscratch use ~590 GB.
   Fallback if the rungs show |w|max still moving > 3% from 3072 to the extrapolation: a 4096^3 window t* 1.747 -> 1.95
   from the kept t 3.75 dump on 32 H200 (~1 x 4 h, ~130 H200-h, model).
+
+P3. |w|max against the paper (2026-10-31)
+  Spectral Re 5000 |w|max peaks (grid max, diagnostics every 10 steps) in the paper's two windows:
+    t* 1.65-1.73: paper 15.28 at 1.700 | 384 14.42 | 512 14.88 at 1.708 | 768 14.60 at 1.704
+    t* 1.73-1.80: paper 14.78 at 1.757 | 384 13.14 | 512 15.08 at 1.774 | 768 15.33 at 1.766
+    t* 1.95-2.10: paper 8.47 at 2.028  | 384 8.48  | 512 8.45            | 768 8.55
+  512 -> 768: -2% (first spike), +1.7% (second); overall max 15.08 -> 15.33. So far the spectral |w|max sits within
+  ~2-4% of the paper's spikes, not +12% (the vm3 2pi/2048 window). Re 5000 at 1024 added (slot g3, run/r5k1024) to settle
+  the 768 -> 1024 step. Rule for Re 40000: report (a) the rung nearest Yao's effective kmax (2/3 rule at 4096: kmax 1365;
+  our Hou-Li keeps ~0.45 n: 3072 -> ~1380), (b) the extrapolated value with its spread; do not tune toward 568.6.
+  The 4096-window gate is about our own convergence only.
