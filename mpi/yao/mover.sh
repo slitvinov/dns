@@ -6,7 +6,7 @@
 #     /data/share/render/yao/re40000/   (only snapshots whose 'snapshot w.STEP' line is in err.*: complete)
 #  Re 9000 fields: rc run/r9kvid/fields/*.npy (after run/r9kvid/done) -> ~/dns/bench/ref/yao/re9000/ -> claw .../re9000/
 Y=/n/netscratch/koumoutsakos_lab/Everyone/slitvinov/yspec/run; M=~/dns/bench/ref/yao; C=/data/share/render/yao
-mkdir -p $M/re40000 $M/re9000
+mkdir -p $M/re40000 $M/re9000 $M/spec/run
 mv1() { # mv1 rcpath macdir clawdir
   local f=$(basename $1) n m k
   n=$(ssh rc "stat -c %s $1 2>/dev/null"); [ -z "$n" ] && return 1
@@ -30,6 +30,10 @@ while :; do
       rsync -a --rsync-path="sudo rsync" $M/re9000/README.txt claw:$C/re9000/ && echo "$(date +%T) re9000 fields done"
     fi
   fi
+  # diagnostics of every run (out, err, e. spectra, logs, gate files) mirrored to the Mac (small; no fields, no dumps)
+  rsync -a --prune-empty-dirs --include='*/' --include='out*' --include='err*' --include='e.*' --include='*.log' \
+    --include='*.info' --include='*.t' --include='w.*.txt' --exclude='*' rc:$Y/ $M/spec/run/ > /dev/null 2>&1
+  rsync -a rc:$Y/../'{gate.ok,gate.fail,gate.log,w4096.txt,w4096.go,w4096.no,gate4096.log,bench.txt}' $M/spec/ > /dev/null 2>&1
   ssh claw "sudo chown -R www-data:www-data /data/share/render" > /dev/null 2>&1
   sleep 600
 done
