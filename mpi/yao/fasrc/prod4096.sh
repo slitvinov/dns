@@ -9,6 +9,8 @@
 # deleted only after a newer one is complete (at most two on disk). First-steps guard: expected 2.3 s/step; a run slower
 # than 3x is killed, its nodes go to badnodes.txt and are excluded from the pending yspec-p* chunks. Requires yspec/gate.ok.
 Y=/n/netscratch/koumoutsakos_lab/Everyone/slitvinov/yspec; D=$Y/run/y40k4096
+# one prod4096 per Slurm job: the Mac starter (lstart.sh) and the cluster watcher (wstart.sh) may both start it; the second exits
+mkdir $Y/run/lock.$SLURM_JOB_ID.${SLURM_RESTART_COUNT:-0} 2> /dev/null || { echo "prod4096: already started in job $SLURM_JOB_ID"; exit 0; }
 [ -e $Y/gate.ok ] && [ ! -e $Y/hold ] || { echo "prod4096: no gate.ok"; scancel $SLURM_JOB_ID; exit 1; }
 [ -e $D/finished ] && { echo "prod4096: finished"; scancel $SLURM_JOB_ID; exit 0; }
 [ -e $D/stopped ] && { echo "prod4096: stopped (see seg.log)"; scancel $SLURM_JOB_ID; exit 1; }
