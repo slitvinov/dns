@@ -217,3 +217,17 @@ G1 (Re 20000, 1536, coordinator's comparison with the exact paper path): Omega p
 -F, C 2 and C 1 with the filter once per step (c1val = the validated Re 5000/9000 flags); G1 2048 as r20k2048p.
 -F: damping rate of mode k per unit time 36 x^36 / F (x = k/kmax per direction), dt-independent; 86,000 x^36 at 1536,
 vs 60,000-95,000 x^36 for the once-per-step filter of the validated Re 9000 1024 run.
+
+## 12. 2026-10-31/11-01: Re 9000 offset tests, t* 1.5 start, self-starting chunks
+
+Re 9000 ladder (all from the 1024 t* 0.75 dump padded, -f -c 1 -S, diag every 0.002 t* over 1.75-1.95; Omega0 = 2.6026367
+fixed, opk.py; peaks.py divides by the first row and is wrong for restarted runs):
+  768 2.26718 | 1024 2.27065 | 1280 2.27189 (r1-4 GH200) | 1536 2.27203 at t* 1.8352 (hal 2x A100 NCCL). Paper 2.28755.
+  |w|max/20 peaks 37.87 / 36.69 / 35.47. Second Omega maximum 2.2659 at t* 1.906 (1280 and 1536).
+  nu -0.7% at 1024 (r9knu): 2.28417 -> d ln(Omega_pk - 1)/d ln Re = 1.50; paper value = effective Re ~0.75% above 9000.
+  2/3 mask without filter (r9v1024_nofilt) 2.26989: the sharp cutoff is not the offset.
+y40k4096 now starts at t* 1.5 from run/l40k2560s/k.00004655 (2560 from l40kbase with B2's flags; its rows bitwise equal to
+B2's up to t* 1.5), ends at t* 2.1. Estimate ~9400 steps (5460 to t* 1.85). Chunks start without the Mac: wstart.sh
+(1-CPU sapphire job) starts prod4096.sh in each new (job, restart) of yspec-l5/p2 through their j daemons; the Mac
+lstart.sh (tmux yspec) is a second path; prod4096 holds lock.JOBID.RESTART. Re 40000 t* 1.3 512^3 fields (from a
+low-mode slab of the 1536 dump) on the Mac and claw render/yao/re40000.
