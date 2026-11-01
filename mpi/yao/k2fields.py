@@ -2,11 +2,13 @@
 # truncated to m^3 (modes |p|, |q|, |r| < m/2 kept): writes outprefix_wabs.npy, outprefix_wz.npy and outprefix_lam2.npy
 # (lambda2 of S^2 + W^2 divided by 1000, negative in vortex cores), float16, shape (m, m, m),
 # index order [i][j][k] = (x, y, z), x_i = -pi + i 2pi/m (same for y, z): x collision normal, y propagation, z tube axis.
+# k.STEP may also be a .slab file: K[:, :m/2, :m/2, :m/2] of the dump only, same n.
 # With q.STEP (and m = n) it also checks the velocity against the physical dump.
 import sys, numpy as np
 kf, n, m, out = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
 X1 = Z1 = Q = n // 2 + 1; M = m // 2
-K = np.memmap(kf, '<c16', 'r', shape=(3, X1, Z1, Q))
+# a .slab file holds only the needed low modes [3][M][M][M] (K[:, :M, :M, :M] of the dump, cut where numpy is missing)
+K = np.memmap(kf, '<c16', 'r', shape=(3, M, M, M) if kf.endswith('.slab') else (3, X1, Z1, Q))
 ox, oz = (1, 0, 0), (0, 0, 1)                  # u odd in x, w odd in z
 s = (m / n) ** 3                                # unnormalized n-grid coefficients -> numpy irfftn on m^3
 U = []

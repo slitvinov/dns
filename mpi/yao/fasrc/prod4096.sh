@@ -1,20 +1,30 @@
 #!/bin/bash
 # prod4096.sh: one chunk of the Yao Re 40000 production run (Sergey's approval 2026-10-31): 4096^3 on 20 H200 (5 nodes),
-# t* 1.3 -> 2.1 (t 2.7911 -> 4.5086; Sergey 2026-10-31: stop after the peaks; final snapshot and k. dump at the end), from the 1536 base dump at t* 1.3 (run/l40kbase, zero-padded), then from the newest
+# t* 1.5 -> 2.1 (t 3.2205 -> 4.5086; Sergey 2026-10-31: start from the 2560 t* 1.5 dump run/l40k2560s, stop after the
+# peaks; final snapshot and k. dump at the end), then from the newest
 # k. dump of run/y40k4096. Binary b7, -S, C 2, -F 0.00015625, NCCL 8/32 channels, spectra every 0.02 in t, diagnostics
 # also every 0.002 in t* over 1.75-1.95, snapshots (|w|, w_z, lambda2/1000, quarter crop x < 1.75, ~57 GB, plus the whole quarter block-averaged 4x4 in x, y
 # (d.STEP_*, 2 x 2.2 GB); moved to the
-# Mac and claw by mover.sh) at t* 1.5 1.6 1.7 1.75 1.8 1.85 1.9 2.0 2.1, k. dumps (413 GB) every 0.15 in t: a dump is
+# Mac and claw by mover.sh) at t* 1.6 1.7 1.75 1.8 1.85 1.9 2.0 2.1, k. dumps (413 GB) every 0.15 in t: a dump is
 # deleted only after a newer one is complete (at most two on disk). First-steps guard: expected 2.3 s/step; a run slower
 # than 3x is killed, its nodes go to badnodes.txt and are excluded from the pending yspec-p* chunks. Requires yspec/gate.ok.
 Y=/n/netscratch/koumoutsakos_lab/Everyone/slitvinov/yspec; D=$Y/run/y40k4096
 [ -e $Y/gate.ok ] && [ ! -e $Y/hold ] || { echo "prod4096: no gate.ok"; scancel $SLURM_JOB_ID; exit 1; }
 [ -e $D/finished ] && { echo "prod4096: finished"; scancel $SLURM_JOB_ID; exit 0; }
 [ -e $D/stopped ] && { echo "prod4096: stopped (see seg.log)"; scancel $SLURM_JOB_ID; exit 1; }
-mkdir -p $D; [ -e $D/start ] || ln -s $(ls $Y/run/l40kbase/k.[0-9]*[0-9] | sort | tail -1) $D/start
-# k. dumps: an early one at t 2.85 (verifies the write in the first chunk), then every 0.15 in t
-KT=$(awk 'BEGIN{s = "2.85"; for (t = 2.95; t < 4.45; t += 0.15) s = s "," t; print s}')
-W=3.2205,3.4352,3.6499,3.7572,3.8646,3.9719,4.0793,4.2939,4.5086
+# start field (Sergey 2026-10-31): t* 1.5 from the 2560 run run/l40k2560s (b2pre.sh; l40kbase t* 1.3 padded 1536 -> 2560,
+# B2 flags), padded 2560 -> 4096 by seg3.sh (-G from the dump size). No fallback to t* 1.3: until that dump is verified
+# (run/l40k2560s/finished) this chunk waits.
+S5=$Y/run/l40k2560s
+mkdir -p $D
+if [ ! -e $D/start ]; then
+  until [ -e $S5/finished ]; do echo "$(date +%F\ %T) prod4096: waiting for the t* 1.5 start dump ($S5/finished)" >> $D/seg.log; sleep 300; done
+  ln -s $(ls $S5/k.[0-9]*[0-9] | while read f; do [ -L $f ] || echo $f; done | sort | tail -1) $D/start
+  echo "$(date +%F\ %T) prod4096: start = $(readlink -f $D/start) ($(cat $(readlink -f $D/start).t))" >> $D/seg.log
+fi
+# k. dumps: an early one at t 3.35 (verifies the write in the first chunk), then every 0.15 in t
+KT=$(awk 'BEGIN{s = "3.35"; for (t = 3.5; t < 4.45; t += 0.15) s = s "," t; print s}')
+W=3.4352,3.6499,3.7572,3.8646,3.9719,4.0793,4.2939,4.5086
 # an older dump is deleted only when the newest one is complete: renamed from .tmp (after fsync), full size, with its .t
 ( while sleep 120; do
     # 900 GB guard: while a dump is being written, if yspec is above 900 GB drop the older complete dump now
