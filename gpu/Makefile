@@ -2,13 +2,19 @@ NVCC = nvcc
 NVCCFLAGS = -O3 -arch=sm_90
 LDLIBS = -lcufft
 
-all: fourier tg etd box boxs boxsym symq symfull
+all: fourier tg tgr rview etd box boxs boxsym symq symfull
 
 fourier: fourier.cu
 	$(NVCC) $(NVCCFLAGS) -o fourier fourier.cu $(LDLIBS)
 
 tg: tg.cu
 	$(NVCC) $(NVCCFLAGS) -o tg tg.cu $(LDLIBS)
+
+tgr: tgr.cu render.h
+	$(NVCC) $(NVCCFLAGS) -o tgr tgr.cu $(LDLIBS)
+
+rview: rview.cu render.h
+	$(NVCC) $(NVCCFLAGS) -o rview rview.cu
 
 etd: etd.cu
 	$(NVCC) $(NVCCFLAGS) -o etd etd.cu $(LDLIBS)
@@ -29,4 +35,4 @@ symfull: symfull.c
 	$(CC) -O2 -o symfull symfull.c
 
 clean:
-	rm -f fourier tg etd box boxs boxsym symq symfull
+	rm -f fourier tg tgr rview etd box boxs boxsym symq symfull

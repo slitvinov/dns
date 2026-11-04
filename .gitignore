@@ -7,5 +7,7 @@
 /mpi/tg
 /gpu/fourier
 /gpu/tg
+/gpu/tgr
+/gpu/rview
 /gpu/etd
 /gpu/box

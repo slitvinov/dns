@@ -39,6 +39,41 @@ reference of the High-Order CFD Workshop
 (`data/ref/spectral_Re1600_512.gdiag`: time, energy, dissipation rate,
 enstrophy) to 3e-4 in the dissipation rate and 1e-5 in the energy.
 
+<h3>In-situ rendering</h2>
+
+`gpu/tgr.cu` is `gpu/tg.cu` with an isosurface renderer of |omega|
+running on the GPU between time steps (`gpu/render.h`). Every `-r`
+time units it synthesizes omega and its nine derivatives from the
+spectral coefficients, fills the box [0,pi]^3 from the even and odd
+classes using the mirror signs, stores f = |omega|^2 and grad f =
+2 (grad omega)^T omega on (M+1)^3 nodes, and ray casts f = iso into a
+PPM frame. The surface uses sum_q w_q (f_q + 1/2 g_q . (p - x_q)),
+which is exact for quadratic f, so thin sheets keep their ridges;
+normals come from a tricubic B-spline of the spectral gradient.
+Colour: red where omega_z > 0, blue where omega_z < 0.
+
+<pre>
+$ make -C gpu tgr rview
+$ ./gpu/tgr -M 256 -n 6.25e-4 -s 0.0025 -t 10 -r 0.05 -I 15 -a 0.5
+</pre>
+
+```
+-r <interval>  render every interval time units, frames r.<step>.ppm
+-I <level>     surface |omega| = level (or -i <fraction> of max|omega|)
+-W <pixels>    image size, -S <n> n x n samples per pixel (3)
+-o 0|1         ambient occlusion, -a <deg> camera turn per frame
+-v 1           also dump the volume v.<step>.raw for gpu/rview
+-c 1           compare f and grad f with the analytic field at t = 0
+```
+
+On an A100 MIG 3g.20gb slice at M = 256 a step takes 19 ms and a
+1024^2 frame 210 ms (49 ms fields, 160 ms ray casting with 3 x 3
+samples and occlusion; 55 ms with `-S 1 -o 0`). At t = 0 f and grad
+f match the analytic Taylor-Green field to 1e-7 (float32 storage).
+
+<p align="center"><img src="img/tgv_render.png" width=600></p>
+Figure: Re = 1600, 512^3 grid, t = 9, surface |omega| = 15.
+
 <h2>References</h2>
 
 - Brachet, M. E., Meiron, D. I., Orszag, S. A., Nickel, B. G., Morf,
