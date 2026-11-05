@@ -28,7 +28,7 @@ do for [j = 1:np] {
     R[j] = word($paper[j], 1)
     P[j] = word($paper[j], 2)
 }
-set term svg size 1200, 1200 font 'arial,20'
+set term svg size 1200, 1200 font 'arial,20' background rgb "white"
 set output "img/tgv.svg"
 set key top left noenhanced
 set size sq
